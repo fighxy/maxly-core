@@ -2005,26 +2005,48 @@ class MaxIosClient internal constructor(
     }
 
     /**
-     * **Experiment.** Asks the server which calls ring for this account (`GET_INBOUND_CALLS` 103,
-     * empty body, [com.maxly.core.calls.CallsApi.probeInboundCalls]). An app that slept through
-     * `NOTIF_CALL_START` 137 sends it after the socket comes back, so a call that still rings shows
-     * at once. [IosInboundCallsProbe.calls] are the reply's call maps with a readable `vcp`, built
-     * like the 137 push; [IosInboundCallsProbe.shape] is the reply with no user content
-     * ([DiagnosticLog.redact]) for the log, since nobody has seen this reply yet. An ERROR reply
-     * fails with its kind and key: the app then stops sending the request.
+     * Calls ringing for this account by `GET_INBOUND_CALLS` 103 ([com.maxly.core.calls.CallsApi.inboundCalls],
+     * empty body). They cannot be answered (no `vcp`): the app shows "X is calling" with a call-back
+     * button. [IosInboundCalls.shape] is the reply with no user content ([DiagnosticLog.redact]) for
+     * the log. An ERROR reply fails with its kind and key: the app then stops sending the request.
      */
-    fun probeInboundCalls(onResult: (IosInboundCallsProbe?, String?, String?) -> Unit) {
+    fun probeInboundCalls(onResult: (IosInboundCalls?, String?, String?) -> Unit) {
         perform(onResult, { null }) { c ->
-            val probe = c.api.calls.probeInboundCalls()
-            val readable = probe.calls.filter { it.params != null }
-            if (readable.isNotEmpty()) withTimeoutOrNull(SENDER_WAIT_MS) { resolveUsers(c, readable.map { it.callerId }) }
-            val state = c.store.state.value
-            IosInboundCallsProbe(
-                shape = DiagnosticLog.cap(DiagnosticLog.redact(probe.raw)),
-                found = probe.calls.size,
-                calls = readable.map { incomingCallSnapshot(it, it.params!!, state, c.device.userAgent) },
-            )
+            val reply = c.api.calls.inboundCalls()
+            inboundCallsSnapshot(c, reply.calls, reply.raw)
         }
+    }
+
+    /**
+     * Calls that rang at the last `LOGIN` ([com.maxly.shared.MaxClient.loginInboundCalls]), if that
+     * reply is at most [maxAgeMs] old; otherwise none. No request is sent.
+     */
+    fun loginInboundCalls(maxAgeMs: Long, onResult: (IosInboundCalls?, String?, String?) -> Unit) {
+        perform(onResult, { null }, waitsForSession = false) { c ->
+            val login = c.loginInboundCalls.value
+            val fresh = login != null && com.maxly.core.api.GhostMode.nowMs() - login.atMs <= maxAgeMs
+            inboundCallsSnapshot(c, if (fresh) login!!.calls else emptyList(), login?.raw)
+        }
+    }
+
+    /** [calls] with caller names (waits up to [SENDER_WAIT_MS] for unknown callers) and [raw]'s shape. */
+    private suspend fun inboundCallsSnapshot(c: MaxClient, calls: List<com.maxly.core.calls.InboundCall>, raw: Any?): IosInboundCalls {
+        if (calls.isNotEmpty()) withTimeoutOrNull(SENDER_WAIT_MS) { resolveUsers(c, calls.map { it.callerId }) }
+        val state = c.store.state.value
+        return IosInboundCalls(
+            shape = DiagnosticLog.cap(DiagnosticLog.redact(raw)),
+            calls = calls.map { call ->
+                val caller = state.users[call.callerId]
+                IosInboundCall(
+                    conversationId = call.conversationId,
+                    callerId = call.callerId.toString(),
+                    callerName = caller?.let { nameOf(it, state) }.orEmpty(),
+                    callerAvatarUrl = caller?.baseUrl.orEmpty(),
+                    chatId = call.chatId?.toString().orEmpty(),
+                    isVideo = call.isVideo,
+                )
+            },
+        )
     }
 
     /** Turns the cloud password on. A blank hint is omitted. */
@@ -3243,13 +3265,25 @@ class IosIncomingCall(
 )
 
 /**
- * Reply of the experimental [MaxIosClient.probeInboundCalls]: [shape] is the payload with no user
- * content, [found] is how many call maps it held, [calls] are those that can be answered.
+ * [MaxIosClient.probeInboundCalls] and [MaxIosClient.loginInboundCalls]: [shape] is the reply (or
+ * the `LOGIN` `calls`) with no user content, [calls] the ringing calls read from it.
  */
-class IosInboundCallsProbe(
+class IosInboundCalls(
     val shape: String,
-    val found: Int,
-    val calls: List<IosIncomingCall>,
+    val calls: List<IosInboundCall>,
+)
+
+/**
+ * A call ringing for this account that cannot be answered ([com.maxly.core.calls.InboundCall]).
+ * [chatId] is empty for a 1:1 call; [callerName] and [callerAvatarUrl] are empty when unknown.
+ */
+class IosInboundCall(
+    val conversationId: String,
+    val callerId: String,
+    val callerName: String,
+    val callerAvatarUrl: String,
+    val chatId: String,
+    val isVideo: Boolean,
 )
 
 /** [MaxIosClient.loadStickerCatalog]: sets in panel order and recent sticker ids. */

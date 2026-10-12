@@ -260,6 +260,9 @@ data class LoginResult(
     /** [login2Flags] parsed; `null` when the reply has none. */
     val login2: Login2Flags? get() = Login2Flags.from(login2Flags)
 
+    /** Calls ringing for this account at login (`calls`, [com.maxly.core.calls.InboundCall.listFrom]). */
+    val inboundCalls: List<com.maxly.core.calls.InboundCall> get() = com.maxly.core.calls.InboundCall.listFrom(raw)
+
     /**
      * This reply with the profile of the `LOGIN2` reply [login2] (sent after this `LOGIN`) merged
      * in: its fields win over the ones of this reply, and [userId] comes from the merged

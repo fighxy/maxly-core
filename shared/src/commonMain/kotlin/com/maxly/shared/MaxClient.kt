@@ -377,6 +377,15 @@ class MaxClient @Throws(Exception::class) constructor(
      */
     val logins: StateFlow<Int> get() = loginCount
 
+    private val loginCallsFlow = MutableStateFlow<LoginInboundCalls?>(null)
+
+    /**
+     * Calls that rang for this account at the last `LOGIN` (its `calls`), with when that reply was
+     * applied. They cannot be answered (no `vcp`); see [com.maxly.core.calls.InboundCall].
+     * `null` before the first login and after logout.
+     */
+    val loginInboundCalls: StateFlow<LoginInboundCalls?> get() = loginCallsFlow
+
     /** `true` when a login token is stored. */
     val hasStoredToken: Boolean get() = credentials.load()?.token != null
 
@@ -518,6 +527,7 @@ class MaxClient @Throws(Exception::class) constructor(
             if (cause.reason != LoginRejection.FLOOD) credentials.clearToken()
             tokenLogin.value = null
             loggedInFlag.value = false
+            loginCallsFlow.value = null
             gapJob?.cancel()
             gapJob = null
         }
@@ -610,6 +620,7 @@ class MaxClient @Throws(Exception::class) constructor(
                 credentials.clearToken()
                 loggedInFlag.value = false
                 loggedIn.value = null
+                loginCallsFlow.value = null
                 val running = gapJob
                 gapJob = null
                 running?.cancel()
@@ -646,6 +657,7 @@ class MaxClient @Throws(Exception::class) constructor(
             val epoch = sessionEpoch
             val relogin = loginCount.value > 0
             loginCount.value += 1
+            loginCallsFlow.value = LoginInboundCalls(r.inboundCalls, com.maxly.core.api.GhostMode.nowMs(), r.raw["calls"])
             val sameAccount = r.userId == null || loggedIn.value == null || r.userId == loggedIn.value
             // config first: an observer of the store never sees the new chats with the old (or no) mutes
             applyLoginConfig(login, r.raw, login.login2Result.value?.raw, sameAccount)
@@ -2240,3 +2252,13 @@ const val APPLIED_EVENTS_BUFFER: Int = 1024
 
 /** Users per `CONTACT_INFO` request when [MaxClient.loadMessageReaders] names the readers. */
 private const val READER_USERS_PAGE = 100
+
+/**
+ * [MaxClient.loginInboundCalls]: the `calls` of a `LOGIN` reply, [atMs] when it was applied
+ * (epoch ms, this device's clock) and [raw] the list as the server sent it, for logging its shape.
+ */
+data class LoginInboundCalls(
+    val calls: List<com.maxly.core.calls.InboundCall>,
+    val atMs: Long,
+    val raw: Any?,
+)

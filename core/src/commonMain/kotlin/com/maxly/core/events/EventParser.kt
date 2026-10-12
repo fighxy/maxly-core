@@ -218,10 +218,9 @@ object EventParser {
 
     /**
      * A `NOTIF_CALL_START` 137 map (`callerId` + `conversationId`; `vcp` decoded when present) as a
-     * [MaxEvent.CallStart]; `null` without either id. The experimental `GET_INBOUND_CALLS` 103 probe
-     * ([com.maxly.core.calls.CallsApi.probeInboundCalls]) reads its reply with the same rule.
+     * [MaxEvent.CallStart]; `null` without either id.
      */
-    internal fun callStart(map: Map<*, *>, opcode: Int, raw: Any?): MaxEvent.CallStart? {
+    private fun callStart(map: Map<*, *>, opcode: Int, raw: Any?): MaxEvent.CallStart? {
         val callerId = map["callerId"].long()
         val conversationId = map["conversationId"] as? String
         if (callerId == null || conversationId.isNullOrEmpty()) return null

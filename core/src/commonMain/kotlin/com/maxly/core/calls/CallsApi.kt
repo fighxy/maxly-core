@@ -6,8 +6,6 @@ import com.maxly.core.api.randomUuid
 import com.maxly.core.api.rawMap
 import com.maxly.core.api.replyMap
 import com.maxly.core.auth.RequestSink
-import com.maxly.core.events.EventParser
-import com.maxly.core.events.MaxEvent
 import com.maxly.core.protocol.Opcode
 import com.maxly.core.session.SessionMachine
 import kotlinx.serialization.json.Json
@@ -38,8 +36,8 @@ import kotlinx.serialization.json.longOrNull
  *
  * `VIDEO_CHAT_MEMBERS` 195 has no method on purpose: kolibri, PyMax and Komet only declare the
  * code and never build a request or read a reply, so its shape is unknown (`docs/opcodes.md`).
- * `GET_INBOUND_CALLS` 103 is the same, but [probeInboundCalls] sends it as an explicit
- * experiment (empty body) so the app can learn the reply from its own logs.
+ * [inboundCalls] is `GET_INBOUND_CALLS` 103: its reply schema is known from MAX Android 26.35.0,
+ * its request body is not (that client never sends it), so it goes out empty.
  */
 class CallsApi(
     private val sink: RequestSink,
@@ -48,34 +46,18 @@ class CallsApi(
     constructor(session: SessionMachine) : this(RequestSink { opcode, payload -> session.request(opcode, payload) })
 
     /**
-     * **Experiment.** `GET_INBOUND_CALLS` 103 with an empty map. No reference has its request
-     * or reply (`docs/opcodes.md`); by its name it lists calls ringing for this account, which
-     * an app that slept through `NOTIF_CALL_START` 137 needs to show the call. Every map in the
-     * reply (up to [INBOUND_DEPTH] levels deep) that reads as a 137 push — `callerId` and
-     * `conversationId`, `vcp` decoded when present — becomes a [MaxEvent.CallStart]
-     * with opcode 103. [InboundCallsProbe.raw] is the reply as is, for the app to log its shape.
+     * Calls ringing for this account (`GET_INBOUND_CALLS` 103): `{calls: [...]}` read as
+     * [InboundCall]. MAX Android 26.35.0 parses this reply but never sends the request, so the
+     * request body is not known; this sends an empty map, and the server answers `{}` when
+     * nothing rings. [InboundCalls.raw] is the reply as is, for the app to log its shape.
      *
-     * The caller decides how often to send it and stops after an error: the server may reject
-     * or even drop the session on an unknown body.
+     * The caller decides how often to send it and stops after an error.
      *
      * @throws com.maxly.core.transport.ServerErrorException for an ERROR reply.
      */
-    suspend fun probeInboundCalls(): InboundCallsProbe {
+    suspend fun inboundCalls(): InboundCalls {
         val reply = sink.request(Opcode.GET_INBOUND_CALLS, emptyMap<String, Any?>())
-        val calls = ArrayList<MaxEvent.CallStart>()
-        collectCallStarts(reply.payload, 0, calls)
-        return InboundCallsProbe(raw = reply.payload, calls = calls.distinctBy { it.conversationId })
-    }
-
-    private fun collectCallStarts(value: Any?, depth: Int, out: MutableList<MaxEvent.CallStart>) {
-        if (depth > INBOUND_DEPTH) return
-        when (value) {
-            is Map<*, *> -> {
-                val call = EventParser.callStart(value, Opcode.GET_INBOUND_CALLS.value, value)
-                if (call != null) out += call else value.values.forEach { collectCallStarts(it, depth + 1, out) }
-            }
-            is List<*> -> value.forEach { collectCallStarts(it, depth + 1, out) }
-        }
+        return InboundCalls(raw = reply.payload, calls = InboundCall.listFrom(reply.payload))
     }
 
     /**
@@ -412,11 +394,8 @@ object CallLink {
 
 private data class CallerEndpoint(val endpoint: String, val callsUserId: Long, val external: Long?)
 
-/** Reply of the experimental [CallsApi.probeInboundCalls]: the payload as is and the calls read from it. */
-data class InboundCallsProbe(
+/** Reply of [CallsApi.inboundCalls]: the payload as is and the calls read from it. */
+data class InboundCalls(
     val raw: Any?,
-    val calls: List<MaxEvent.CallStart>,
+    val calls: List<InboundCall>,
 )
-
-/** How deep [CallsApi.probeInboundCalls] looks for call maps in the unknown reply. */
-internal const val INBOUND_DEPTH = 4

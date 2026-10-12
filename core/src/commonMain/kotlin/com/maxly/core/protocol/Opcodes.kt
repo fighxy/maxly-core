@@ -138,7 +138,7 @@ enum class Opcode(val value: Int) {
     NOTIF_CALL_HISTORY(165), // push {callHistorySync, prevCallHistorySync, action, callHistoryItems, historyIds}
     VIDEO_CHAT_HANGUP(167), // {conversationId, reason, peerId?, internalParams:""} -> {error?}
     VIDEO_CHAT_CREATE_JOIN_LINK(84),
-    GET_INBOUND_CALLS(103), // TODO: payload unknown (no call site in kolibri, PyMax or Komet, see docs/opcodes.md)
+    GET_INBOUND_CALLS(103), // CallsApi.inboundCalls: reply schema from MAX Android, request body unknown (sent as {}), see docs/opcodes.md
     VIDEO_CHAT_DELETE_HISTORY(164), // kolibri only (absent in PyMax)
     // PyMax names this VIDEO_CHAT_JOIN. Komet joins with {joinLink, internalParams, isVideo}.
     VIDEO_CHAT_JOIN_BY_LINK(166),

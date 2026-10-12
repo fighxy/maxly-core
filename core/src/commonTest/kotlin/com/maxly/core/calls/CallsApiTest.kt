@@ -3,7 +3,6 @@ package com.maxly.core.calls
 import com.maxly.core.api.MalformedReplyException
 import com.maxly.core.api.MaxApi
 import com.maxly.core.auth.RequestSink
-import com.maxly.core.events.MaxEvent
 import com.maxly.core.protocol.CmdType
 import com.maxly.core.protocol.DefaultMessagePackCodec
 import com.maxly.core.protocol.Opcode
@@ -243,37 +242,38 @@ class CallsApiTest {
     }
 
     @Test
-    fun probeInboundCallsSendsEmptyMapAndReadsCallMapsAtAnyDepth() = runTest {
-        val call = mapOf("callerId" to 30899954L, "conversationId" to "a3f25a7b", "type" to "AUDIO", "vcp" to "not-a-vcp")
-        val sink = FakeSink(mapOf("calls" to listOf(call, call), "other" to mapOf("x" to 1)))
-        val probe = CallsApi(sink).probeInboundCalls()
+    fun inboundCallsSendsEmptyMapAndReadsCallsList() = runTest {
+        // Схема ответа 103 из MAX Android 26.35.0: calls с conversationId, callerId, chatId, type.
+        val audio = mapOf("conversationId" to "a3f25a7b", "callerId" to 30899954L, "chatId" to 0L, "type" to "AUDIO", "sdpOffer" to "v=0")
+        val video = mapOf("conversationId" to "b4", "callerId" to "77", "chatId" to 5L, "type" to "VIDEO", "turnServer" to mapOf("urls" to listOf("turn:x")))
+        val broken = mapOf("conversationId" to "", "callerId" to 1L)
+        val sink = FakeSink(mapOf("calls" to listOf(audio, audio, video, broken, "junk")))
+        val reply = CallsApi(sink).inboundCalls()
         assertEquals(listOf(Opcode.GET_INBOUND_CALLS), sink.sent.map { it.first })
         assertEquals(emptyMap<String, Any?>(), sink.sent.single().second)
-        assertEquals(1, probe.calls.size)
-        val read = probe.calls.single()
-        assertEquals(30899954L, read.callerId)
-        assertEquals("a3f25a7b", read.conversationId)
-        assertEquals(Opcode.GET_INBOUND_CALLS.value, read.opcode)
-        // vcp, который не читается, звонок не роняет: его отбросит приложение.
-        assertNull(read.params)
+        assertEquals(
+            listOf(InboundCall("a3f25a7b", 30899954L, null, isVideo = false), InboundCall("b4", 77L, 5L, isVideo = true)),
+            reply.calls,
+        )
     }
 
     @Test
-    fun probeInboundCallsWithoutCallsReturnsRawReply() = runTest {
-        val reply = mapOf("inbound" to emptyList<Any?>())
-        val probe = CallsApi(FakeSink(reply)).probeInboundCalls()
-        assertEquals(emptyList<MaxEvent.CallStart>(), probe.calls)
-        assertEquals(reply, probe.raw)
+    fun inboundCallsWithoutCallsReturnsRawReply() = runTest {
+        val reply = CallsApi(FakeSink(emptyMap<String, Any?>())).inboundCalls()
+        assertEquals(emptyList<InboundCall>(), reply.calls)
+        assertEquals(emptyMap<String, Any?>(), reply.raw)
+        assertEquals(emptyList<InboundCall>(), InboundCall.listFrom(mapOf("calls" to "nope")))
+        assertEquals(emptyList<InboundCall>(), InboundCall.listFrom(null))
     }
 
     @Test
-    fun probeInboundCallsPassesServerErrors() = runTest {
+    fun inboundCallsPassesServerErrors() = runTest {
         val error = ServerErrorException.from(
             TransportPacket(
                 PacketHeader(PROTOCOL_VERSION, CmdType.ERROR.value, 1, Opcode.GET_INBOUND_CALLS.value.toShort(), 0, false),
                 mapOf("error" to "proto.payload", "message" to "unknown"),
             ),
         )
-        assertSame(error, assertFailsWith<ServerErrorException> { CallsApi(FakeSink(error)).probeInboundCalls() })
+        assertSame(error, assertFailsWith<ServerErrorException> { CallsApi(FakeSink(error)).inboundCalls() })
     }
 }

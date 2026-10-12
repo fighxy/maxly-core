@@ -565,6 +565,16 @@ class AuthApiTest {
     }
 
     @Test
+    fun loginReplyListsRingingCalls() {
+        val reply = mapOf(
+            "calls" to listOf(mapOf("conversationId" to "c1", "callerId" to 9L, "chatId" to 0L, "type" to "VIDEO", "sdpOffer" to "v=0")),
+            "videoChatHistory" to emptyList<Any?>(),
+        )
+        assertEquals(listOf(com.maxly.core.calls.InboundCall("c1", 9L, null, isVideo = true)), LoginResult.from(reply).inboundCalls)
+        assertEquals(emptyList(), LoginResult.from(emptyMap<String, Any?>()).inboundCalls)
+    }
+
+    @Test
     fun login2ProfileIsMergedAndNotReusedByTheNextLogin() = runTest {
         val factory = ScriptedConnectionFactory()
         val login = AuthApi.tokenLoginHook("stored-token", device)

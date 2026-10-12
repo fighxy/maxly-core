@@ -269,6 +269,29 @@ class MaxClientTest {
     }
 
     @Test
+    fun loginReplyCallsAreExposedWithTheirTime() = runTest {
+        val kv = InMemoryKeyValueStore()
+        val factory = ScriptedConnectionFactory()
+        val c = smsLogin(kv, factory, config.copy(fillGapsOnReconnect = false))
+        assertEquals(emptyList(), c.loginInboundCalls.value?.calls)
+
+        c.disconnect()
+        val again = async { c.start() }
+        runCurrent()
+        val conn = factory.lastConnection!!
+        conn.answer(Opcode.SESSION_INIT, mapOf("callsSeed" to seed))
+        runCurrent()
+        val calls = listOf(mapOf("conversationId" to "c1", "callerId" to 9L, "chatId" to 0L, "type" to "AUDIO"))
+        conn.answer(Opcode.LOGIN, loginReply(null) + mapOf("calls" to calls))
+        assertEquals(ClientState.Ready(5), again.await())
+        val login = c.loginInboundCalls.value!!
+        assertEquals(listOf(com.maxly.core.calls.InboundCall("c1", 9L, null, isVideo = false)), login.calls)
+        assertEquals(1, (login.raw as List<*>).size)
+        assertTrue(login.atMs > 0)
+        c.close()
+    }
+
+    @Test
     fun reloginWithoutGapFillSendsNoHistoryRequests() = runTest {
         val kv = InMemoryKeyValueStore()
         val factory = ScriptedConnectionFactory()
