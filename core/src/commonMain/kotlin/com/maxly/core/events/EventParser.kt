@@ -104,25 +104,7 @@ object EventParser {
                 else -> null
             }
         }
-        Opcode.NOTIF_CALL_START.value -> {
-            val callerId = map["callerId"].long()
-            val conversationId = map["conversationId"] as? String
-            if (callerId == null || conversationId.isNullOrEmpty()) null
-            else {
-                val vcp = map["vcp"] as? String
-                MaxEvent.CallStart(
-                    callerId = callerId,
-                    conversationId = conversationId,
-                    type = map["type"] as? String,
-                    chatId = map["chatId"].long(),
-                    isContact = map["isContact"] as? Boolean,
-                    vcp = vcp,
-                    params = vcp?.let(ConversationParams::decode),
-                    opcode = opcode,
-                    raw = raw,
-                )
-            }
-        }
+        Opcode.NOTIF_CALL_START.value -> callStart(map, opcode, raw)
         Opcode.NOTIF_FOLDERS.value -> folders(opcode, map, raw)
         Opcode.NOTIF_DRAFT.value -> draftSaved(opcode, map, raw)
         Opcode.NOTIF_DRAFT_DISCARD.value -> draftDiscarded(opcode, map, raw)
@@ -234,9 +216,33 @@ object EventParser {
         }
     }
 
+    /**
+     * A `NOTIF_CALL_START` 137 map (`callerId` + `conversationId`; `vcp` decoded when present) as a
+     * [MaxEvent.CallStart]; `null` without either id. The experimental `GET_INBOUND_CALLS` 103 probe
+     * ([com.maxly.core.calls.CallsApi.probeInboundCalls]) reads its reply with the same rule.
+     */
+    internal fun callStart(map: Map<*, *>, opcode: Int, raw: Any?): MaxEvent.CallStart? {
+        val callerId = map["callerId"].long()
+        val conversationId = map["conversationId"] as? String
+        if (callerId == null || conversationId.isNullOrEmpty()) return null
+        val vcp = map["vcp"] as? String
+        return MaxEvent.CallStart(
+            callerId = callerId,
+            conversationId = conversationId,
+            type = map["type"] as? String,
+            chatId = map["chatId"].long(),
+            isContact = map["isContact"] as? Boolean,
+            vcp = vcp,
+            params = vcp?.let(ConversationParams::decode),
+            opcode = opcode,
+            raw = raw,
+        )
+    }
+
     private fun Any?.long(): Long? = when (this) {
         is Number -> toLong()
         is String -> toLongOrNull()
         else -> null
     }
 }
+

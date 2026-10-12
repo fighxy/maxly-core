@@ -6,6 +6,8 @@ import com.maxly.core.api.randomUuid
 import com.maxly.core.api.rawMap
 import com.maxly.core.api.replyMap
 import com.maxly.core.auth.RequestSink
+import com.maxly.core.events.EventParser
+import com.maxly.core.events.MaxEvent
 import com.maxly.core.protocol.Opcode
 import com.maxly.core.session.SessionMachine
 import kotlinx.serialization.json.Json
@@ -34,15 +36,47 @@ import kotlinx.serialization.json.longOrNull
  * The reply carries a signaling endpoint inside a JSON string; this class does not open a
  * socket. Live media is ws2 (see [ConversationParams.ws2Url]); WebRTC stays on the host.
  *
- * `GET_INBOUND_CALLS` 103 and `VIDEO_CHAT_MEMBERS` 195 have no method on purpose: kolibri, PyMax
- * and Komet only declare the codes and never build a request or read a reply, so neither shape
- * is known (`docs/opcodes.md`). Add them only with a captured request and reply.
+ * `VIDEO_CHAT_MEMBERS` 195 has no method on purpose: kolibri, PyMax and Komet only declare the
+ * code and never build a request or read a reply, so its shape is unknown (`docs/opcodes.md`).
+ * `GET_INBOUND_CALLS` 103 is the same, but [probeInboundCalls] sends it as an explicit
+ * experiment (empty body) so the app can learn the reply from its own logs.
  */
 class CallsApi(
     private val sink: RequestSink,
     private val newConversationId: () -> String = ::randomUuid,
 ) {
     constructor(session: SessionMachine) : this(RequestSink { opcode, payload -> session.request(opcode, payload) })
+
+    /**
+     * **Experiment.** `GET_INBOUND_CALLS` 103 with an empty map. No reference has its request
+     * or reply (`docs/opcodes.md`); by its name it lists calls ringing for this account, which
+     * an app that slept through `NOTIF_CALL_START` 137 needs to show the call. Every map in the
+     * reply (up to [INBOUND_DEPTH] levels deep) that reads as a 137 push — `callerId` and
+     * `conversationId`, `vcp` decoded when present — becomes a [MaxEvent.CallStart]
+     * with opcode 103. [InboundCallsProbe.raw] is the reply as is, for the app to log its shape.
+     *
+     * The caller decides how often to send it and stops after an error: the server may reject
+     * or even drop the session on an unknown body.
+     *
+     * @throws com.maxly.core.transport.ServerErrorException for an ERROR reply.
+     */
+    suspend fun probeInboundCalls(): InboundCallsProbe {
+        val reply = sink.request(Opcode.GET_INBOUND_CALLS, emptyMap<String, Any?>())
+        val calls = ArrayList<MaxEvent.CallStart>()
+        collectCallStarts(reply.payload, 0, calls)
+        return InboundCallsProbe(raw = reply.payload, calls = calls.distinctBy { it.conversationId })
+    }
+
+    private fun collectCallStarts(value: Any?, depth: Int, out: MutableList<MaxEvent.CallStart>) {
+        if (depth > INBOUND_DEPTH) return
+        when (value) {
+            is Map<*, *> -> {
+                val call = EventParser.callStart(value, Opcode.GET_INBOUND_CALLS.value, value)
+                if (call != null) out += call else value.values.forEach { collectCallStarts(it, depth + 1, out) }
+            }
+            is List<*> -> value.forEach { collectCallStarts(it, depth + 1, out) }
+        }
+    }
 
     /**
      * Requests a Calls-API token (`OK_TOKEN` 158) with an empty map.
@@ -377,3 +411,12 @@ object CallLink {
 }
 
 private data class CallerEndpoint(val endpoint: String, val callsUserId: Long, val external: Long?)
+
+/** Reply of the experimental [CallsApi.probeInboundCalls]: the payload as is and the calls read from it. */
+data class InboundCallsProbe(
+    val raw: Any?,
+    val calls: List<MaxEvent.CallStart>,
+)
+
+/** How deep [CallsApi.probeInboundCalls] looks for call maps in the unknown reply. */
+internal const val INBOUND_DEPTH = 4

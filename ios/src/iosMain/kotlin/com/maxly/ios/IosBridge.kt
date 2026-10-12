@@ -60,6 +60,7 @@ import com.maxly.core.session.UserAgentInfo
 import com.maxly.core.state.MaxState
 import com.maxly.core.auth.CodeRequestType
 import com.maxly.core.auth.VerifyResult
+import com.maxly.core.events.DiagnosticLog
 import com.maxly.core.events.MaxEvent
 import com.maxly.core.protocol.Opcode
 import com.maxly.core.transport.RefusedOpcodes
@@ -2003,6 +2004,29 @@ class MaxIosClient internal constructor(
             .watch(scope) { call -> guarded { onEach(call) } }
     }
 
+    /**
+     * **Experiment.** Asks the server which calls ring for this account (`GET_INBOUND_CALLS` 103,
+     * empty body, [com.maxly.core.calls.CallsApi.probeInboundCalls]). An app that slept through
+     * `NOTIF_CALL_START` 137 sends it after the socket comes back, so a call that still rings shows
+     * at once. [IosInboundCallsProbe.calls] are the reply's call maps with a readable `vcp`, built
+     * like the 137 push; [IosInboundCallsProbe.shape] is the reply with no user content
+     * ([DiagnosticLog.redact]) for the log, since nobody has seen this reply yet. An ERROR reply
+     * fails with its kind and key: the app then stops sending the request.
+     */
+    fun probeInboundCalls(onResult: (IosInboundCallsProbe?, String?, String?) -> Unit) {
+        perform(onResult, { null }) { c ->
+            val probe = c.api.calls.probeInboundCalls()
+            val readable = probe.calls.filter { it.params != null }
+            if (readable.isNotEmpty()) withTimeoutOrNull(SENDER_WAIT_MS) { resolveUsers(c, readable.map { it.callerId }) }
+            val state = c.store.state.value
+            IosInboundCallsProbe(
+                shape = DiagnosticLog.cap(DiagnosticLog.redact(probe.raw)),
+                found = probe.calls.size,
+                calls = readable.map { incomingCallSnapshot(it, it.params!!, state, c.device.userAgent) },
+            )
+        }
+    }
+
     /** Turns the cloud password on. A blank hint is omitted. */
     fun enablePassword(password: String, hint: String, onResult: (String?, String?) -> Unit) {
         runUnit(onResult) { c -> c.api.twoFactor.enable(password, hint = hint.trim().takeIf { it.isNotEmpty() }) }
@@ -3216,6 +3240,16 @@ class IosIncomingCall(
     val turnUsername: String,
     val turnPassword: String,
     val expiresAtMs: Long,
+)
+
+/**
+ * Reply of the experimental [MaxIosClient.probeInboundCalls]: [shape] is the payload with no user
+ * content, [found] is how many call maps it held, [calls] are those that can be answered.
+ */
+class IosInboundCallsProbe(
+    val shape: String,
+    val found: Int,
+    val calls: List<IosIncomingCall>,
 )
 
 /** [MaxIosClient.loadStickerCatalog]: sets in panel order and recent sticker ids. */
