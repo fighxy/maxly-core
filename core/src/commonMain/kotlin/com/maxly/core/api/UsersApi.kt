@@ -170,6 +170,16 @@ class UsersApi(private val sink: RequestSink) {
 
     private fun contactAction(userId: Long, action: String): Map<String, Any?> = linkedMapOf("contactId" to userId, "action" to action)
 
+    /**
+     * Hides or shows the stories of person [userId] for this account (`CONTACT_UPDATE` 34,
+     * `{contactId, action: "HIDE_STORIES" | "SHOW_STORIES"}`, as the MAX web client sends it).
+     * Returns the reply's `contact` when there is one.
+     */
+    suspend fun setStoriesHidden(userId: Long, hidden: Boolean): MaxUser? {
+        val map = replyMap(sink.request(Opcode.CONTACT_UPDATE, contactAction(userId, if (hidden) "HIDE_STORIES" else "SHOW_STORIES")), Opcode.CONTACT_UPDATE)
+        return MaxUser.from(map["contact"])
+    }
+
     companion object {
         /** Longest first or last name of a contact the server accepts (MAX web client form). */
         const val CONTACT_NAME_MAX = 64

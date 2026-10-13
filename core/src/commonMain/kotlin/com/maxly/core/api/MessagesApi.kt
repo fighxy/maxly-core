@@ -599,6 +599,16 @@ class MessagesApi(
     suspend fun sendPrepared(chatId: Long, payload: Map<String, Any?>): MaxMessage =
         requireMessage(sink.request(Opcode.MSG_SEND, payload), Opcode.MSG_SEND, chatId)
 
+    /**
+     * Replies to a story in its owner's chat (`MSG_SEND` 64 with a `STORY_REPLY` attachment, as
+     * the MAX web client sends it): [chatId] is the dialog with a person owner or the owner chat.
+     */
+    suspend fun sendStoryReply(chatId: Long, text: String, owner: StoryOwner, storyId: Long, expirationMs: Long, notify: Boolean = true): MaxMessage {
+        require(text.isNotBlank()) { "text must not be blank" }
+        val payload = sendMessagePayload(chatId, text, cids.next(), null, notify, attaches = listOf(StoriesApi.replyAttach(owner, storyId, expirationMs)))
+        return sendPrepared(chatId, payload)
+    }
+
     /** `MSG_SEND` body for a forward (PyMax `ForwardMessagePayload`); [cid] is negative in PyMax. */
     fun forwardMessagePayload(chatId: Long, messageId: Long, sourceChatId: Long, cid: Long, notify: Boolean): Map<String, Any?> =
         linkedMapOf(

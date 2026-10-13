@@ -21,8 +21,12 @@ import com.maxly.core.protocol.Opcode
  * - Push: `NOTIF_STORIES_UPDATE` 216 `{storiesPreview}` (`MaxEvent.StoriesUpdated`); an empty
  *   preview (`totalCount` 0) means the owner has no stories left.
  *
- * Reactions (213), stats (211, 212), edit (217) and by-id (220) are not used by Komet; they stay
- * out until a schema is known.
+ * - Like: `STORIES_REACT` 213 `{owner, storyId, reaction: {reactionType: 0, id: emoji}}`; without
+ *   `reaction` the like is removed ([react]; schema as the MAX web client sends it).
+ * - Reply: a message to the owner's chat with a `STORY_REPLY` attachment ([replyAttach],
+ *   `MessagesApi.sendStoryReply`).
+ *
+ * Stats (211, 212), edit (217) and by-id (220) stay out until they are needed.
  */
 class StoriesApi(private val sink: RequestSink, private val clock: () -> Long) {
 
@@ -42,6 +46,16 @@ class StoriesApi(private val sink: RequestSink, private val clock: () -> Long) {
         if (valid.isEmpty()) return OwnerStories(emptyList(), emptyList())
         val map = rawMap(sink.request(Opcode.STORIES_GET_BY_OWNER, linkedMapOf("owners" to valid.map { it.toPayload() })))
         return OwnerStories.from(map)
+    }
+
+    /**
+     * Likes [storyId] of [owner] with [emoji] (the web client's heart is [HEART]) or removes the
+     * like when [emoji] is `null` (`STORIES_REACT` 213). `true` when the reply says `success`.
+     */
+    suspend fun react(owner: StoryOwner, storyId: Long, emoji: String?): Boolean {
+        val payload = linkedMapOf<String, Any?>("owner" to owner.toPayload(), "storyId" to storyId)
+        if (emoji != null) payload["reaction"] = linkedMapOf("reactionType" to 0, "id" to emoji)
+        return rawMap(sink.request(Opcode.STORIES_REACT, payload))["success"] == true
     }
 
     /** Marks [storyId] of [owner] seen. A server error is thrown. */
@@ -104,6 +118,20 @@ class StoriesApi(private val sink: RequestSink, private val clock: () -> Long) {
     companion object {
         /** Komet's story lifetime: a day. */
         const val DAY_MS: Long = 86_400_000L
+
+        /** The like of the web client's heart button. */
+        const val HEART: String = "❤️"
+
+        /**
+         * The `STORY_REPLY` attachment of a reply to [storyId] of [owner] (the web client sends
+         * it with the message text): `{_type, storyId, owner, expirationTime}`.
+         */
+        fun replyAttach(owner: StoryOwner, storyId: Long, expirationMs: Long): Map<String, Any?> = linkedMapOf(
+            "_type" to "STORY_REPLY",
+            "storyId" to storyId,
+            "owner" to owner.toPayload(),
+            "expirationTime" to expirationMs,
+        )
 
         /** Page size the app hardcodes for opcode 219. */
         const val OWN_ARCHIVE_PAGE: Int = 30
@@ -176,8 +204,25 @@ data class Story(
     val updateTime: Long,
     val expiration: Long,
     val media: StoryMedia?,
+    /** This account's like: the emoji (`reaction.reactionType` 0), `null` when none. */
+    val reaction: String? = null,
+    val viewsCount: Int = 0,
+    val reactionsCount: Int = 0,
 ) {
+    /** The author turned off likes ([OFF_REACT]), replies, or a menu item for this story. */
+    fun isOff(flag: Int): Boolean = settings and flag != 0
+
     companion object {
+        /** `settings` bits (web client): who sees it, then what the author turned off. */
+        const val VISIBLE_FOR_ALL: Int = 1
+        const val VISIBLE_FOR_CONTACTS: Int = 2
+        const val OFF_REACT: Int = 4
+        const val OFF_REPLY: Int = 8
+        const val OFF_MENU_PROFILE: Int = 16
+        const val OFF_MENU_HIDE_AUTHOR: Int = 32
+        const val OFF_MENU_DOWNLOAD: Int = 64
+        const val OFF_MENU_REPORT: Int = 128
+
         fun from(value: Any?): Story? {
             val m = value as? Map<*, *> ?: return null
             val owner = StoryOwner.from(m["owner"]) ?: return null
@@ -190,6 +235,9 @@ data class Story(
                 updateTime = millis(m["updateTime"].asLong()),
                 expiration = millis(m["expiration"].asLong()),
                 media = StoryMedia.from(m["media"]),
+                reaction = (m["reaction"] as? Map<*, *>)?.takeIf { it["reactionType"].asLong() == 0L }?.get("id")?.toString()?.takeIf { it.isNotEmpty() },
+                viewsCount = m["viewsCount"].asLong()?.toInt() ?: 0,
+                reactionsCount = m["reactionsCount"].asLong()?.toInt() ?: 0,
             )
         }
     }

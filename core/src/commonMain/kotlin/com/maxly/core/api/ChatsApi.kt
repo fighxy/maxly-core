@@ -26,6 +26,14 @@ class ChatsApi(
         return chatList(Opcode.CHAT_INFO, linkedMapOf("chatIds" to chatIds))
     }
 
+    /**
+     * Hides or shows the stories of chat or channel [chatId] for this account
+     * (`CHAT_PERSONAL_CONFIG` 61, `{chatId, hideStories}`, as the MAX web client sends it).
+     */
+    suspend fun setStoriesHidden(chatId: Long, hidden: Boolean) {
+        sink.request(Opcode.CHAT_PERSONAL_CONFIG, linkedMapOf("chatId" to chatId, "hideStories" to hidden))
+    }
+
     /** One chat via [getChats]; throws [ApiException] if the reply does not contain it (PyMax: "Chat not found"). */
     suspend fun getChat(chatId: Long): Chat =
         getChats(listOf(chatId)).firstOrNull { it.id == chatId } ?: throw ApiException("chat $chatId not found in CHAT_INFO reply")

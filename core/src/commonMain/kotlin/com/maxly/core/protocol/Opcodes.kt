@@ -257,7 +257,7 @@ enum class Opcode(val value: Int) {
     STORIES_GET_BY_OWNER(210), // Komet: {owners: [{ownerId, type}]} → storiesPreviews, peerStories
     STORIES_GET_STATS(211), // TODO: payload unknown
     STORIES_GET_DETAILED_STATS(212), // TODO: payload unknown
-    STORIES_REACT(213), // TODO: payload unknown
+    STORIES_REACT(213), // MAX web client: {owner, storyId, reaction?: {reactionType: 0, id: emoji}} → {success}
     STORIES_MARK(214), // Komet: {owner, storyId}
     STORIES_SEND(215), // Komet: {stories: [{cid, settings, media, expiration}]}
     NOTIF_STORIES_UPDATE(216), // Komet: {storiesPreview}

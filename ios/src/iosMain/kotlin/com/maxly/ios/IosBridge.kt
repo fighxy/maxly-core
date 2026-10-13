@@ -1431,6 +1431,67 @@ class MaxIosClient internal constructor(
         runUnit(onResult) { c -> c.api.stories.delete(storyIds.map(::parseId)) }
     }
 
+    /**
+     * Likes story [storyId] of the owner with [emoji] (the web client's heart is "❤️") or removes
+     * the like when [emoji] is empty (`STORIES_REACT` 213, [StoriesApi.react]). The result is
+     * `"ok"` when the server answered `success: true`, otherwise empty.
+     */
+    fun reactToStory(ownerId: String, type: Int, storyId: String, emoji: String, onResult: (String, String?, String?) -> Unit) {
+        perform(onResult, { "" }) { c ->
+            val owner = StoryOwner(parseId(ownerId), storyOwnerType(type))
+            if (c.api.stories.react(owner, parseId(storyId), emoji.ifEmpty { null })) "ok" else ""
+        }
+    }
+
+    /**
+     * Replies to story [storyId] with [text] in the owner's chat: the dialog with a person owner
+     * (`own id xor owner id`) or the owner chat (`MSG_SEND` 64 with a `STORY_REPLY` attachment,
+     * [MessagesApi.sendStoryReply]). [expiresAtMs] is the story's expiration. The sent message is
+     * stored and returned.
+     */
+    fun replyToStory(ownerId: String, type: Int, storyId: String, expiresAtMs: Long, text: String, onResult: (IosMessage?, String?, String?) -> Unit) {
+        perform(onResult, { null }) { c ->
+            val owner = StoryOwner(parseId(ownerId), storyOwnerType(type))
+            val chatId = if (owner.type == StoryOwner.Type.USER) {
+                val me = c.userId.value ?: throw IllegalStateException("not logged in")
+                me xor owner.ownerId
+            } else {
+                owner.ownerId
+            }
+            val sent = c.api.messages.sendStoryReply(chatId, text.trim(), owner, parseId(storyId), expiresAtMs)
+            c.store.putSentMessage(chatId, sent)
+            messageSnapshot(sent, chatId.toString(), c.store.state.value)
+        }
+    }
+
+    /**
+     * Hides ([hidden]) or shows again the owner's stories for this account: a person through
+     * `CONTACT_UPDATE` 34 (`HIDE_STORIES` / `SHOW_STORIES`), a chat or channel through
+     * `CHAT_PERSONAL_CONFIG` 61 (`hideStories`).
+     */
+    fun setStoriesHidden(ownerId: String, type: Int, hidden: Boolean, onResult: (String?, String?) -> Unit) {
+        runUnit(onResult) { c ->
+            val id = parseId(ownerId)
+            if (storyOwnerType(type) == StoryOwner.Type.USER) {
+                c.api.users.setStoriesHidden(id, hidden)
+            } else {
+                c.api.chats.setStoriesHidden(id, hidden)
+            }
+        }
+    }
+
+    /**
+     * Reports story [storyId] of [ownerId] (`COMPLAIN` 161 with type
+     * [com.maxly.core.api.ComplaintsApi.STORY] `9` and the owner as `parentId`). Reasons come
+     * from [complaintReasons] with type `9`. The result is `"ok"` on `success: true`.
+     */
+    fun reportStory(reasonId: Int, ownerId: String, storyId: String, onResult: (String, String?, String?) -> Unit) {
+        perform(onResult, { "" }) { c ->
+            val sent = c.api.complaints.send(reasonId, com.maxly.core.api.ComplaintsApi.STORY, listOf(parseId(storyId)), parseId(ownerId))
+            if (sent) "ok" else ""
+        }
+    }
+
     /** The whole contact list (opcode 8 `{contactsSync: 0}`) into the store, then as [loadContacts]. */
     fun syncContacts(onResult: (List<IosContact>, String?, String?) -> Unit) {
         perform(onResult, { emptyList() }) { c ->
@@ -2735,6 +2796,8 @@ private fun storySnapshot(story: Story): IosStory {
         width = media?.width ?: 0,
         height = media?.height ?: 0,
         durationMs = media?.durationMs ?: 0,
+        reaction = story.reaction.orEmpty(),
+        viewsCount = story.viewsCount,
     )
 }
 
@@ -3347,6 +3410,9 @@ class IosStory(
     val width: Int,
     val height: Int,
     val durationMs: Long,
+    /** This account's like (the emoji), empty when none. [audience] holds all `settings` bits. */
+    val reaction: String = "",
+    val viewsCount: Int = 0,
 )
 
 /** [MaxIosClient.loadOwnerStories]: the owner's ring (`null` when none) and stories, oldest first. */

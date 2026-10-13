@@ -48,6 +48,9 @@ class ComplaintsApi(private val sink: RequestSink) {
 
         /** A user. Komet `ComplaintsModule.userTypeId`. */
         const val USER: Int = 6
+
+        /** A story: ids are the story id, `parentId` its owner (MAX web client). */
+        const val STORY: Int = 9
     }
 }
 

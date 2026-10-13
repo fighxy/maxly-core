@@ -147,4 +147,39 @@ class StoriesApiTest {
         assertFalse(off.storiesHistory)
         assertNull(off.familyProtectionBotId)
     }
+
+    @Test
+    fun likeReplyAndSettingsFlags() = runTest {
+        val sink = ScriptSink(mapOf("success" to true))
+        val api = StoriesApi(sink) { now }
+        assertTrue(api.react(StoryOwner(7), 101, StoriesApi.HEART))
+        assertEquals(Opcode.STORIES_REACT, sink.opcodes.last())
+        assertEquals(
+            mapOf("owner" to mapOf<String, Any?>("ownerId" to 7L, "type" to 0), "storyId" to 101L, "reaction" to mapOf<String, Any?>("reactionType" to 0, "id" to "❤️")),
+            sink.sent.last().second,
+        )
+        api.react(StoryOwner(7), 101, null)
+        assertEquals(mapOf("owner" to mapOf<String, Any?>("ownerId" to 7L, "type" to 0), "storyId" to 101L), sink.sent.last().second)
+        assertEquals(
+            mapOf("_type" to "STORY_REPLY", "storyId" to 101L, "owner" to mapOf<String, Any?>("ownerId" to 7L, "type" to 0), "expirationTime" to now),
+            StoriesApi.replyAttach(StoryOwner(7), 101, now),
+        )
+        val story = Story.from(
+            mapOf("id" to 101L, "owner" to owner(7), "settings" to (1 or Story.OFF_REPLY or Story.OFF_MENU_DOWNLOAD), "reaction" to mapOf("reactionType" to 0, "id" to "❤️"), "viewsCount" to 12),
+        )!!
+        assertEquals("❤️", story.reaction)
+        assertEquals(12, story.viewsCount)
+        assertTrue(story.isOff(Story.OFF_REPLY) && story.isOff(Story.OFF_MENU_DOWNLOAD))
+        assertFalse(story.isOff(Story.OFF_REACT))
+        assertNull(Story.from(mapOf("id" to 1L, "owner" to owner(7), "reaction" to mapOf("reactionType" to 1, "id" to "5")))!!.reaction)
+    }
+
+    @Test
+    fun hideAuthorStoriesForPersonAndChat() = runTest {
+        val sink = ScriptSink(mapOf("contact" to mapOf("id" to 7L)), emptyMap<String, Any?>())
+        assertEquals(7L, UsersApi(sink).setStoriesHidden(7, true)?.id)
+        assertEquals(Opcode.CONTACT_UPDATE to mapOf<String, Any?>("contactId" to 7L, "action" to "HIDE_STORIES"), sink.sent[0])
+        ChatsApi(sink).setStoriesHidden(-70, false)
+        assertEquals(Opcode.CHAT_PERSONAL_CONFIG to mapOf<String, Any?>("chatId" to -70L, "hideStories" to false), sink.sent[1])
+    }
 }
