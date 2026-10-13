@@ -89,16 +89,20 @@ class StoriesApi(private val sink: RequestSink, private val clock: () -> Long) {
     }
 
     /**
-     * The account's own story archive (`STORIES_HISTORY_GET_BY_OWNER_ID` 219).
-     * The app always sends `count` 30 and sends `marker` only when it is not zero.
-     * There is no owner id: this is the signed-in account. [marker] `null` or `0` is the first page.
+     * The account's own story archive (`STORIES_HISTORY_GET_BY_OWNER_ID` 219), as the MAX web
+     * client asks for it: `{owner: {ownerId, type: 0}, marker, count: 15}` with [owner] the
+     * signed-in account and `marker` 0 for the first page. Without `owner` the server refuses the
+     * request. [marker] `null` or `0` is the first page.
      * A reply marker of `0` or a missing marker is [StoryArchivePage.marker] `null` (no next page).
      * Items are the same story objects as the feed; `version`, `layers`, `reaction`, `viewsCount`
      * and `reactionsCount` are on the wire and not kept.
      */
-    suspend fun ownArchive(marker: Long? = null): StoryArchivePage {
-        val payload = linkedMapOf<String, Any?>("count" to OWN_ARCHIVE_PAGE)
-        if (marker != null && marker != 0L) payload["marker"] = marker
+    suspend fun ownArchive(owner: StoryOwner, marker: Long? = null): StoryArchivePage {
+        val payload = linkedMapOf<String, Any?>(
+            "owner" to owner.toPayload(),
+            "marker" to (marker ?: 0L),
+            "count" to OWN_ARCHIVE_PAGE,
+        )
         val map = replyMap(sink.request(Opcode.STORIES_HISTORY_GET_BY_OWNER, payload), Opcode.STORIES_HISTORY_GET_BY_OWNER)
         val items = map["stories"]
         val stories = when (items) {
@@ -134,7 +138,7 @@ class StoriesApi(private val sink: RequestSink, private val clock: () -> Long) {
         )
 
         /** Page size the app hardcodes for opcode 219. */
-        const val OWN_ARCHIVE_PAGE: Int = 30
+        const val OWN_ARCHIVE_PAGE: Int = 15
     }
 }
 

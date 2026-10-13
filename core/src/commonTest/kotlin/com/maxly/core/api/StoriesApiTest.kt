@@ -105,33 +105,36 @@ class StoriesApiTest {
     }
 
     @Test
-    fun ownArchivePagesThirtyAndKeepsTheCursor() = runTest {
+    fun ownArchiveAsksLikeTheWebClientAndKeepsTheCursor() = runTest {
         val story = mapOf(
             "id" to 301L, "owner" to owner(5), "time" to 1_700_000_000L,
             "media" to mapOf("_type" to "PHOTO", "baseUrl" to "https://i/a"),
             "viewsCount" to 4, "reactionsCount" to 1, "version" to 2,
         )
         val sink = ScriptSink(mapOf("stories" to listOf(story, mapOf("id" to 1), "junk"), "marker" to 88L))
-        val page = StoriesApi(sink) { now }.ownArchive()
+        val page = StoriesApi(sink) { now }.ownArchive(StoryOwner(7))
         assertEquals(Opcode.STORIES_HISTORY_GET_BY_OWNER, sink.opcodes.single())
-        assertEquals(mapOf("count" to 30), sink.sent.single().second)
+        val first = sink.sent.single().second as Map<*, *>
+        assertEquals(StoryOwner(7).toPayload(), first["owner"])
+        assertEquals(0L, first["marker"])
+        assertEquals(15, first["count"])
         assertEquals(listOf(301L), page.stories.map { it.id })
         assertEquals(88L, page.marker)
         val next = ScriptSink(mapOf("stories" to emptyList<Any>(), "marker" to 0))
-        val last = StoriesApi(next) { now }.ownArchive(88L)
+        val last = StoriesApi(next) { now }.ownArchive(StoryOwner(7), 88L)
         val sent = next.sent.single().second as Map<*, *>
-        assertEquals(setOf("count", "marker"), sent.keys)
-        assertEquals(30, sent["count"])
+        assertEquals(setOf("owner", "marker", "count"), sent.keys)
+        assertEquals(15, sent["count"])
         assertEquals(88L, sent["marker"])
         assertEquals(emptyList(), last.stories)
         assertNull(last.marker)
     }
 
     @Test
-    fun ownArchiveOmitsAZeroMarker() = runTest {
+    fun ownArchiveSendsAZeroMarkerForTheFirstPage() = runTest {
         val sink = ScriptSink(emptyMap<String, Any?>())
-        val page = StoriesApi(sink) { now }.ownArchive(0L)
-        assertEquals(mapOf("count" to 30), sink.sent.single().second)
+        val page = StoriesApi(sink) { now }.ownArchive(StoryOwner(7), null)
+        assertEquals(0L, (sink.sent.single().second as Map<*, *>)["marker"])
         assertEquals(emptyList(), page.stories)
         assertNull(page.marker)
     }

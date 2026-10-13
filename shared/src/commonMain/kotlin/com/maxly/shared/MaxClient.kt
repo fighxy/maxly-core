@@ -1299,12 +1299,14 @@ class MaxClient @Throws(Exception::class) constructor(
 
     /**
      * One page of the account's own story archive (`STORIES_HISTORY_GET_BY_OWNER_ID` 219).
-     * [marker] `null` or `0` asks for the first page (the request then omits `marker`).
+     * [marker] `null` or `0` asks for the first page. The owner is the signed-in account.
      * The page is not stored. See [com.maxly.core.api.StoriesApi.ownArchive].
      */
     @Throws(CancellationException::class, Exception::class)
-    suspend fun ownStoryArchive(marker: Long? = null): com.maxly.core.api.StoryArchivePage =
-        api.stories.ownArchive(marker)
+    suspend fun ownStoryArchive(marker: Long? = null): com.maxly.core.api.StoryArchivePage {
+        val me = store.state.value.me ?: userId.value ?: throw IllegalStateException("not signed in")
+        return api.stories.ownArchive(com.maxly.core.api.StoryOwner(me), marker)
+    }
 
     private fun readSetting(key: String): String? = try {
         settings.get(key)
