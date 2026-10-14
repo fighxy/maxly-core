@@ -1298,15 +1298,34 @@ class MaxClient @Throws(Exception::class) constructor(
     }
 
     /**
-     * One page of the account's own story archive (`STORIES_HISTORY_GET_BY_OWNER_ID` 219).
-     * [marker] `null` or `0` asks for the first page. The owner is the signed-in account.
-     * The page is not stored. See [com.maxly.core.api.StoriesApi.ownArchive].
+     * One page of the account's own stories. With the archive on the server
+     * (`config.server["stories-history"]`, [AccountConfig.storiesHistory]) it is the archive
+     * (`STORIES_HISTORY_GET_BY_OWNER_ID` 219, [com.maxly.core.api.StoriesApi.ownArchive]);
+     * otherwise the server does not know 219 (it answers «Неизвестный opcode» and drops the
+     * connection), so the page is the current stories (210,
+     * [com.maxly.core.api.StoriesApi.ownCurrent]) and there is no next page. A 219 refused as
+     * unknown is not sent again until the client is recreated.
+     * [marker] `null` or `0` asks for the first page. The page is not stored.
      */
     @Throws(CancellationException::class, Exception::class)
     suspend fun ownStoryArchive(marker: Long? = null): com.maxly.core.api.StoryArchivePage {
         val me = store.state.value.me ?: userId.value ?: throw IllegalStateException("not signed in")
-        return api.stories.ownArchive(com.maxly.core.api.StoryOwner(me), marker)
+        val owner = com.maxly.core.api.StoryOwner(me)
+        val first = marker == null || marker == 0L
+        if (archiveRefused || _accountConfig.value?.storiesHistory != true) {
+            return if (first) api.stories.ownCurrent(owner) else com.maxly.core.api.StoryArchivePage(emptyList(), null)
+        }
+        return try {
+            api.stories.ownArchive(owner, marker)
+        } catch (e: com.maxly.core.transport.ServerErrorException) {
+            if (e.errorKey != "proto.opcode") throw e
+            archiveRefused = true
+            throw e
+        }
     }
+
+    /** The server refused 219 as an unknown opcode: [ownStoryArchive] keeps to the current stories. */
+    @Volatile private var archiveRefused = false
 
     private fun readSetting(key: String): String? = try {
         settings.get(key)

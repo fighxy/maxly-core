@@ -113,6 +113,17 @@ class StoriesApi(private val sink: RequestSink, private val clock: () -> Long) {
         return StoryArchivePage(stories, map["marker"].asLong()?.takeIf { it != 0L })
     }
 
+    /**
+     * The account's own current stories as one archive page, newest first, without a next page:
+     * `STORIES_GET_BY_OWNER_ID` 210 for [owner]. For accounts without the archive
+     * (`stories-history` off) the server does not know 219 at all: it answers «Неизвестный
+     * opcode» and drops the connection, so [ownArchive] must not be sent there.
+     */
+    suspend fun ownCurrent(owner: StoryOwner): StoryArchivePage {
+        val stories = byOwners(listOf(owner)).storiesOf(owner).orEmpty()
+        return StoryArchivePage(stories.sortedByDescending { it.time }, null)
+    }
+
     /** Deletes the account's own stories. */
     suspend fun delete(storyIds: List<Long>) {
         if (storyIds.isEmpty()) return

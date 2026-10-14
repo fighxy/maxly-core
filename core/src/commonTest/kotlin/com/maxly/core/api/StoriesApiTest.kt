@@ -131,6 +131,18 @@ class StoriesApiTest {
     }
 
     @Test
+    fun ownCurrentStoriesAreOneNewestFirstPageFrom210() = runTest {
+        fun story(id: Long, time: Long) = mapOf("id" to id, "owner" to owner(7), "time" to time, "media" to mapOf("_type" to "PHOTO", "baseUrl" to "https://i/$id"))
+        val sink = ScriptSink(mapOf("peerStories" to listOf(mapOf("owner" to owner(7), "stories" to listOf(story(1, 100), story(2, 300), story(3, 200))))))
+        val page = StoriesApi(sink) { now }.ownCurrent(StoryOwner(7))
+        assertEquals(Opcode.STORIES_GET_BY_OWNER, sink.opcodes.single())
+        assertEquals(listOf(2L, 3L, 1L), page.stories.map { it.id })
+        assertNull(page.marker)
+        val none = StoriesApi(ScriptSink(emptyMap<String, Any?>())) { now }.ownCurrent(StoryOwner(7))
+        assertEquals(emptyList(), none.stories)
+    }
+
+    @Test
     fun ownArchiveSendsAZeroMarkerForTheFirstPage() = runTest {
         val sink = ScriptSink(emptyMap<String, Any?>())
         val page = StoriesApi(sink) { now }.ownArchive(StoryOwner(7), null)
