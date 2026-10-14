@@ -73,6 +73,15 @@ class ReactionsTest {
     }
 
     @Test
+    fun animojiKeepsItsStillAnimationAndEffect() {
+        assertEquals(
+            Animoji(5, "🤔", 7, "https://i/5.webp", "https://l/5.json", "https://p/5.json"),
+            Animoji.from(mapOf("id" to 5L, "emoji" to "🤔", "setId" to 7L, "iconUrl" to "https://i/5.webp", "lottieUrl" to "https://l/5.json", "lottiePlayUrl" to "https://p/5.json")),
+        )
+        assertEquals(Animoji(6, "🔥", null, null, null, null), Animoji.from(mapOf("id" to 6L, "emoji" to "🔥", "lottieUrl" to "", "lottiePlayUrl" to "")))
+    }
+
+    @Test
     fun catalogFallsBackToLooseIdsAndMayBeEmpty() = runTest {
         val sink = ScriptSink(
             mapOf("animojiUpdates" to mapOf("3" to 1, 4L to 1)),

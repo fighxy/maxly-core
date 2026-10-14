@@ -3,21 +3,31 @@ package com.maxly.core.api
 import com.maxly.core.auth.RequestSink
 import com.maxly.core.protocol.Opcode
 
-/** One animated emoji of the server catalog (`ASSETS_GET_BY_IDS` 28, type `ANIMOJI`). */
+/**
+ * One animated emoji of the server catalog (`ASSETS_GET_BY_IDS` 28, type `ANIMOJI`). [iconUrl] is
+ * the still picture, [lottieUrl] the emoji itself animated, [lottiePlayUrl] the one-shot effect
+ * around it played when a reaction is set (field names as in KometTeam/Komet `Animoji`).
+ */
 data class Animoji(
     val id: Long,
     val emoji: String,
     val setId: Long?,
     val iconUrl: String?,
     val lottieUrl: String?,
+    val lottiePlayUrl: String? = null,
 ) {
     companion object {
-        /** `{id, emoji, setId?, iconUrl?, lottieUrl?}`; `null` without an id or an emoji. */
+        /** `{id, emoji, setId?, iconUrl?, lottieUrl?, lottiePlayUrl?}`; `null` without an id or an emoji. */
         fun from(value: Any?): Animoji? {
             val m = value as? Map<*, *> ?: return null
             val id = m["id"].asLong() ?: return null
             val emoji = (m["emoji"] as? String)?.takeIf { it.isNotEmpty() } ?: return null
-            return Animoji(id, emoji, m["setId"].asLong(), m["iconUrl"] as? String, m["lottieUrl"] as? String)
+            return Animoji(
+                id, emoji, m["setId"].asLong(),
+                (m["iconUrl"] as? String)?.takeIf { it.isNotEmpty() },
+                (m["lottieUrl"] as? String)?.takeIf { it.isNotEmpty() },
+                (m["lottiePlayUrl"] as? String)?.takeIf { it.isNotEmpty() },
+            )
         }
     }
 }

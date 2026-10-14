@@ -977,7 +977,7 @@ class MaxIosClient internal constructor(
     /** The animated emoji catalog (lottie per emoji), in server order; may be empty. */
     fun loadAnimojis(onResult: (List<IosAnimoji>, String?, String?) -> Unit) {
         perform(onResult, { emptyList() }) { c ->
-            c.reactionCatalog().map { IosAnimoji(it.id.toString(), it.emoji, it.iconUrl.orEmpty(), it.lottieUrl.orEmpty()) }
+            c.reactionCatalog().map { IosAnimoji(it.id.toString(), it.emoji, it.iconUrl.orEmpty(), it.lottieUrl.orEmpty(), it.lottiePlayUrl.orEmpty()) }
         }
     }
 
@@ -3373,8 +3373,11 @@ class IosSticker(
     val tags: List<String>,
 )
 
-/** An animated emoji of the catalog; [iconUrl] / [lottieUrl] empty when unknown. */
-class IosAnimoji(val id: String, val emoji: String, val iconUrl: String, val lottieUrl: String)
+/**
+ * An animated emoji of the catalog: [iconUrl] the still picture, [lottieUrl] the emoji animated,
+ * [lottiePlayUrl] the one-shot effect around a reaction just set; each empty when unknown.
+ */
+class IosAnimoji(val id: String, val emoji: String, val iconUrl: String, val lottieUrl: String, val lottiePlayUrl: String = "")
 
 /**
  * One owner's stories ring ([MaxIosClient.loadStoriesFeed]). [ownerType] `0` person, `1` group,
