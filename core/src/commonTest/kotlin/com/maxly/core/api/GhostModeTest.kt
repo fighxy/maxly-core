@@ -85,7 +85,8 @@ class GhostModeTest {
         var ghost = false
         var hide = false
         val factory = ScriptedConnectionFactory()
-        val t = MaxTransport(quiet.copy(pingInterval = 30.seconds), factory, scope = backgroundScope)
+        // the fake server never answers: a long request timeout keeps the read watchdog out of this test
+        val t = MaxTransport(quiet.copy(pingInterval = 30.seconds, requestTimeout = 600.seconds), factory, scope = backgroundScope)
         t.outboundGuard = GhostMode.guard({ ghost }, { hide })
         t.connect()
         runCurrent()

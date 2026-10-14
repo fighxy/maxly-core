@@ -474,11 +474,17 @@ class MaxClient @Throws(Exception::class) constructor(
                 }
             }
         }
-        // the server ends the login on its own: an ERROR with a session-ending code on any request
-        // of a logged-in session, or a pushed LOGOUT 20. Both end like a refused LOGIN token.
+        // the server ends the login on its own: a login.* ERROR on any request of a logged-in
+        // session, or a pushed LOGOUT 20. Both end like a refused LOGIN token. session.invalid.state
+        // on any other request only means this connection's state is gone: reconnect, LOGIN again.
         session.transport.onServerError = { e ->
-            if (LoginRejection.of(e) != null && loggedInFlag.value && session.state.value is SessionState.Online) {
-                this.scope.launch { session.terminate(InvalidTokenException(e)) }
+            val rejection = LoginRejection.of(e)
+            if (rejection != null && loggedInFlag.value && session.state.value is SessionState.Online) {
+                if (rejection == LoginRejection.SESSION_INVALID && e.packet.opcode != Opcode.LOGIN.value) {
+                    this.scope.launch { session.transport.reconnect() }
+                } else {
+                    this.scope.launch { session.terminate(InvalidTokenException(e)) }
+                }
             }
         }
         this.scope.launch {

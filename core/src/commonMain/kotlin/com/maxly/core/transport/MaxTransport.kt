@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -40,6 +41,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 import kotlin.time.Duration
 
@@ -154,7 +156,7 @@ class MaxTransport(
     /** Serializes connect / close. */
     private val lifecycleLock = Mutex()
 
-    /** Guards [seq], [pending], [connection], [readerJob], [pingJob]. */
+    /** Guards [seq], [pending], [connection], [readerJob], [pingJob], [watchdogJob]. */
     private val stateLock = Mutex()
 
     /** Serializes socket writes so packets are not interleaved. */
@@ -169,6 +171,10 @@ class MaxTransport(
     private var inboundChunks = 0L
     private var readerJob: Job? = null
     private var pingJob: Job? = null
+    private var watchdogJob: Job? = null
+
+    /** Bumped on every chunk read from the server; the read watchdog waits for it to change. */
+    private val inboundActivity = MutableStateFlow(0L)
 
     /**
      * The `interactive` flag of every PING: `true` while the user is looking at the app (the MAX web
@@ -369,7 +375,9 @@ class MaxTransport(
         val reader = stateLock.withLock {
             connection = conn
             seq.reset()
-            scope.launch { readLoop(conn) }.also { readerJob = it }
+            val r = scope.launch { readLoop(conn) }.also { readerJob = it }
+            readIdleTimeout(cfg)?.let { limit -> watchdogJob = scope.launch { readWatchdog(conn, limit) } }
+            r
         }
         try {
             onConnected?.invoke(this)
@@ -380,7 +388,7 @@ class MaxTransport(
         }
         stateLock.withLock {
             if (connection === conn && reader.isActive) {
-                pingJob = scope.launch { pingLoop(cfg.pingInterval) }
+                pingJob = scope.launch { pingLoop(conn, cfg.pingInterval) }
             }
         }
         if (reader.isActive) _state.value = ConnectionState.Connected
@@ -465,7 +473,35 @@ class MaxTransport(
         }
     }
 
-    /** Closes the current connection, stops reader/ping, fails pending requests. */
+    /**
+     * Drops the live connection on purpose (e.g. the server said the session state is invalid):
+     * the supervisor reconnects after the first backoff delay (so a server that keeps answering
+     * the same way is not hammered) and the session runs its handshake and `LOGIN` again. Without
+     * auto-reconnect the transport just ends up [ConnectionState.Disconnected]. Does nothing while
+     * no connection is up.
+     */
+    suspend fun reconnect() {
+        val conn = stateLock.withLock { connection } ?: return
+        closeIfCurrent(conn)
+    }
+
+    /**
+     * Read watchdog: closes [conn] when not a byte arrived from the server for [limit]. A socket
+     * that died without a FIN or RST (sleep, network change, a NAT that forgot the flow) otherwise
+     * keeps blocking the read while our PINGs pile up in the kernel buffer, and the supervisor
+     * never learns that the connection is gone.
+     */
+    private suspend fun readWatchdog(conn: RawConnection, limit: Duration) {
+        while (true) {
+            val seen = inboundActivity.value
+            val heard = withTimeoutOrNull(limit) { inboundActivity.first { it != seen } }
+            if (heard == null) {
+                closeIfCurrent(conn)
+                return
+            }
+        }
+    }
+
     /** Closes [conn] if it is still the live connection; the reader then sees the drop. */
     private suspend fun closeIfCurrent(conn: RawConnection) {
         if (stateLock.withLock { connection === conn }) runCatching { conn.close() }
@@ -474,6 +510,8 @@ class MaxTransport(
     private suspend fun dropConnection(cause: Throwable) {
         val (conn, reader, ping) = stateLock.withLock {
             val snapshot = Triple(connection, readerJob, pingJob)
+            watchdogJob?.cancel()
+            watchdogJob = null
             connection = null
             readerJob = null
             pingJob = null
@@ -494,6 +532,7 @@ class MaxTransport(
                 if (n < 0) break
                 if (n == 0) continue
                 inboundChunks++
+                inboundActivity.value = inboundActivity.value + 1
                 rawChunks.tryEmit(buffer.copyOf(n))
                 for (frame in reassembler.feed(buffer, 0, n)) {
                     // a followed RECONNECT ends this connection: the supervisor reconnects
@@ -595,8 +634,12 @@ class MaxTransport(
         }
     }
 
-    /** PING at once, then every [interval]; started once [onConnected] (handshake, `LOGIN`) is done. */
-    private suspend fun pingLoop(interval: Duration) {
+    /**
+     * PING at once, then every [interval]; started once [onConnected] (handshake, `LOGIN`) is done.
+     * A failed write closes [conn], so the supervisor reconnects instead of leaving a connection
+     * that no longer pings.
+     */
+    private suspend fun pingLoop(conn: RawConnection, interval: Duration) {
         if (interval == Duration.INFINITE || !interval.isPositive()) return
         while (true) {
             try {
@@ -606,6 +649,7 @@ class MaxTransport(
             } catch (e: OutboundBlockedException) {
                 // a guard may hold a tick back; the loop goes on
             } catch (e: Throwable) {
+                withContext(NonCancellable) { closeIfCurrent(conn) }
                 return
             }
             delay(interval)
@@ -674,6 +718,15 @@ class MaxTransport(
 
         /** kolibri `READ_CHUNK`: 64 KiB. */
         const val READ_CHUNK: Int = 64 * 1024
+
+        /**
+         * How long the read watchdog waits for any byte from the server: one ping interval plus
+         * the request timeout (the reply to our PING, or the server's own PING, is late by then).
+         * `null` (no watchdog) when the ping loop is off.
+         */
+        internal fun readIdleTimeout(cfg: TransportConfig): Duration? =
+            if (cfg.pingInterval == Duration.INFINITE || !cfg.pingInterval.isPositive()) null
+            else cfg.pingInterval + cfg.requestTimeout
 
         private fun isReply(cmd: Byte): Boolean =
             cmd == CmdType.OK.value || cmd == CmdType.NOT_FOUND.value || cmd == CmdType.ERROR.value

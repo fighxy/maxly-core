@@ -716,7 +716,6 @@ class MaxClientTest {
     @Test
     fun sessionEndingErrorOnAnyRequestEndsTheSession() = runTest {
         for ((key, reason) in listOf(
-            "session.invalid.state" to com.maxly.core.auth.LoginRejection.SESSION_INVALID,
             "login.token" to com.maxly.core.auth.LoginRejection.TOKEN,
             "login.blocked" to com.maxly.core.auth.LoginRejection.BLOCKED,
         )) {
@@ -732,6 +731,23 @@ class MaxClientTest {
             assertEquals(reason, s.reason)
             assertNull(CredentialStore(kv, "max.default").load()!!.token)
         }
+    }
+
+    @Test
+    fun sessionInvalidStateOnARequestReconnectsAndKeepsTheToken() = runTest {
+        val kv = InMemoryKeyValueStore()
+        val factory = ScriptedConnectionFactory()
+        val c = smsLogin(kv, factory)
+        val conn = factory.lastConnection!!
+        val profile = async { runCatching { c.updateProfile("New") } }
+        runCurrent()
+        conn.fail(Opcode.PROFILE, mapOf("error" to "session.invalid.state"))
+        assertTrue(profile.await().isFailure)
+        runCurrent()
+        // the connection is dropped for a reconnect, the login is not ended
+        assertEquals(com.maxly.core.transport.ConnectionState.Disconnected, c.session.transport.state.value)
+        assertTrue(c.state.value !is ClientState.TokenRejected)
+        assertEquals("login-2", CredentialStore(kv, "max.default").load()!!.token)
     }
 
     @Test

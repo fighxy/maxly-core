@@ -37,6 +37,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 class SessionMachineTest {
 
@@ -301,6 +302,42 @@ class SessionMachineTest {
         // disconnect from Failed
         m.disconnect()
         assertEquals(SessionState.Closed, m.state.value)
+    }
+
+    @Test
+    fun silentServerIsDroppedByTheReadWatchdogAndHandshakeRunsAgain() = runTest {
+        val factory = ScriptedConnectionFactory()
+        val cfg = quiet.copy(autoReconnect = true, pingInterval = 10.seconds, requestTimeout = 5.seconds)
+        val m = machine(factory, cfg)
+        val connecting = async { m.connect() }
+        runCurrent()
+        val first = factory.lastConnection!!
+        first.answerHandshake(mapOf("callsSeed" to 1))
+        connecting.await()
+
+        // traffic from the server keeps the connection: a push at 14 s restarts the 15 s window
+        advanceTimeBy(14_000)
+        first.feed(push(Opcode.NOTIF_TYPING.value, mapOf("chatId" to 1)))
+        advanceTimeBy(14_000)
+        runCurrent()
+        assertEquals(ConnectionState.Connected, m.transport.state.value)
+        assertEquals(1, factory.openCount)
+
+        // then the socket goes silent (PINGs are written, nothing ever comes back)
+        advanceTimeBy(1_001)
+        runCurrent()
+        assertEquals(ConnectionState.Disconnected, m.transport.state.value)
+        assertEquals(SessionState.Reconnecting(1), m.state.value)
+
+        // the supervisor reconnects after the backoff and the handshake runs on the new socket
+        advanceTimeBy(3_301)
+        runCurrent()
+        assertEquals(2, factory.openCount)
+        val second = factory.lastConnection!!
+        second.answerHandshake(mapOf("callsSeed" to 2))
+        runCurrent()
+        assertEquals(2L, (m.state.value as SessionState.Online).handshake.callsSeed)
+        m.disconnect()
     }
 
     @Test

@@ -51,6 +51,8 @@ class JavaSocketConnectionFactory(
         try {
             blockingIo(onCancel = { closeQuietly(socket) }) {
                 socket.tcpNoDelay = true
+                // OS-level probes on top of the transport's read watchdog
+                socket.keepAlive = true
                 val address = if (proxy != null) InetSocketAddress(proxy.host, proxy.port) else InetSocketAddress(host, port)
                 socket.connect(address, timeoutMs)
                 socket.soTimeout = timeoutMs
