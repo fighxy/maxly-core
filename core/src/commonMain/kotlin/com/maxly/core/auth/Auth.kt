@@ -101,7 +101,16 @@ enum class LoginRejection {
      * `login.flood`: too many logins. Probably temporary; the official clients still drop the
      * account. `MaxClient` keeps the stored token for this one (see `ClientState.TokenRejected`).
      */
-    FLOOD;
+    FLOOD,
+
+    /** `session.invalid.state`: the server no longer accepts this session; log in again. */
+    SESSION_INVALID,
+
+    /**
+     * The server ended this session by itself (`LOGOUT` 20 pushed by the server, e.g. after the
+     * session was closed on another device). Not an error reply; see [InvalidTokenException.loggedOut].
+     */
+    LOGGED_OUT;
 
     companion object {
         private val LEGACY_TOKEN = setOf("FAIL_LOGIN_TOKEN", "FAIL_LOGOUT_ALL")
@@ -111,6 +120,7 @@ enum class LoginRejection {
             e.errorKey == "login.token" -> TOKEN
             e.errorKey == "login.blocked" -> BLOCKED
             e.errorKey == "login.flood" -> FLOOD
+            e.errorKey == "session.invalid.state" -> SESSION_INVALID
             e.errorKey in LEGACY_TOKEN || e.rawMessage in LEGACY_TOKEN -> TOKEN
             else -> null
         }
@@ -125,11 +135,22 @@ enum class LoginRejection {
  * for the user are on [serverError] ([ServerErrorException.displayText], `title`,
  * `localizedText`, `description`).
  */
-class InvalidTokenException(val serverError: ServerErrorException) :
-    AuthException("login token rejected: ${serverError.errorKey ?: serverError.rawMessage ?: serverError.message}", serverError),
+class InvalidTokenException(val serverError: ServerErrorException, reason: LoginRejection? = null) :
+    AuthException("login token rejected: ${reason?.name ?: serverError.errorKey ?: serverError.rawMessage ?: serverError.message}", serverError),
     FatalSessionError {
-    /** Which rejection this is; [LoginRejection.TOKEN] for an error that matches none (built by hand). */
-    val reason: LoginRejection = LoginRejection.of(serverError) ?: LoginRejection.TOKEN
+    /**
+     * Which rejection this is: the explicit one, else the one [serverError] names, else
+     * [LoginRejection.TOKEN] for an error that matches none (built by hand).
+     */
+    val reason: LoginRejection = reason ?: LoginRejection.of(serverError) ?: LoginRejection.TOKEN
+
+    companion object {
+        /** The session end for a server-pushed `LOGOUT` 20 [packet] ([LoginRejection.LOGGED_OUT]). */
+        fun loggedOut(packet: TransportPacket): InvalidTokenException = InvalidTokenException(
+            ServerErrorException("logged out by the server", errorKey = null, rawMessage = null, packet = packet),
+            LoginRejection.LOGGED_OUT,
+        )
+    }
 }
 
 /** `type` of `AUTH_REQUEST` (PyMax `AuthType`). */

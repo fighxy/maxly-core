@@ -44,11 +44,11 @@ class ServerErrorException(
     /**
      * The login token is no longer valid: `error` `login.token` (Android app), or
      * `FAIL_LOGIN_TOKEN` / `FAIL_LOGOUT_ALL` in `error` or `message` (kolibri / PyMax spelling,
-     * kept as a fallback). `login.blocked` and `login.flood` are login rejections too but are
+     * kept as a fallback), or `session.invalid.state`. `login.blocked` and `login.flood` are login rejections too but are
      * not reported here; see `com.maxly.core.auth.LoginRejection`.
      */
     val isSessionExpired: Boolean
-        get() = errorKey == "login.token" || errorKey in LEGACY_EXPIRED || rawMessage in LEGACY_EXPIRED
+        get() = errorKey == "login.token" || errorKey == "session.invalid.state" || errorKey in LEGACY_EXPIRED || rawMessage in LEGACY_EXPIRED
 
     /**
      * The text the Android app shows for this error (`y00` / `y9m.d`): [title], else

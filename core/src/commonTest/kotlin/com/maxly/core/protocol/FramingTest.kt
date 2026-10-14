@@ -91,7 +91,7 @@ class FramingTest {
 
     @Test
     fun opcodeTableIsConsistent() {
-        assertEquals(190, Opcode.entries.size)
+        assertEquals(192, Opcode.entries.size)
         assertEquals(Opcode.entries.size, Opcode.entries.map { it.value }.toSet().size)
         assertEquals(Opcode.STORIES_LIST, Opcode.fromValue(208))
         assertNull(Opcode.fromValue(4))

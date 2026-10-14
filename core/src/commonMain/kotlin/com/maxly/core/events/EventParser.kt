@@ -23,6 +23,8 @@ import com.maxly.core.transport.TransportPacket
  * | `NOTIF_PRESENCE` 132 | [MaxEvent.Presence] |
  * | `NOTIF_MSG_REACTIONS_CHANGED` 155 | [MaxEvent.ReactionsChanged] |
  * | `NOTIF_ATTACH` 136 | [MaxEvent.AttachmentFailed] when `error` is non-empty (with the id, if any), else [MaxEvent.AttachmentReady] (`fileId` / `videoId` / `audioId`) |
+ * | `NOTIF_CALL_ACCEPTED` 120 | [MaxEvent.CallAcceptedElsewhere] (`conversationId`) |
+ * | `NOTIF_CALL_END` 121 | [MaxEvent.CallEnded] (`conversationId`) |
  * | `NOTIF_CALL_START` 137 | [MaxEvent.CallStart] (`callerId` + `conversationId`; `vcp` decoded when present) |
  * | `NOTIF_CONFIG` 134 | [MaxEvent.ConfigUpdated] (`{config}` or `chats` / `user` / `server` / `hash` at the top; at least one of them) |
  * | `NOTIF_FOLDERS` 277 | [MaxEvent.FoldersChanged] (`folders` / `folder`, `foldersOrder`, `folderSync`; at least one of them) |
@@ -105,6 +107,10 @@ object EventParser {
             }
         }
         Opcode.NOTIF_CALL_START.value -> callStart(map, opcode, raw)
+        Opcode.NOTIF_CALL_ACCEPTED.value ->
+            callConversation(map)?.let { MaxEvent.CallAcceptedElsewhere(it, opcode, raw) }
+        Opcode.NOTIF_CALL_END.value ->
+            callConversation(map)?.let { MaxEvent.CallEnded(it, opcode, raw) }
         Opcode.NOTIF_FOLDERS.value -> folders(opcode, map, raw)
         Opcode.NOTIF_DRAFT.value -> draftSaved(opcode, map, raw)
         Opcode.NOTIF_DRAFT_DISCARD.value -> draftDiscarded(opcode, map, raw)
@@ -236,6 +242,13 @@ object EventParser {
             opcode = opcode,
             raw = raw,
         )
+    }
+
+    /** The non-empty `conversationId` of a call push (string, or a number as its decimal text). */
+    private fun callConversation(map: Map<*, *>): String? = when (val v = map["conversationId"]) {
+        is String -> v.takeIf { it.isNotEmpty() }
+        is Number -> v.toLong().toString()
+        else -> null
     }
 
     private fun Any?.long(): Long? = when (this) {

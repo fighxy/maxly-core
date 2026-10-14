@@ -344,6 +344,29 @@ class SessionMachine(
         }
     }
 
+    /**
+     * Ends the session for good with [cause]: like [disconnect] (no reconnect, connection closed,
+     * a pending [connect] fails), but the final state is [SessionState.Failed] with [cause], so
+     * observers see why (e.g. the server logged this session out). [connect] may be called again.
+     */
+    suspend fun terminate(cause: Throwable): Unit = opLock.withLock {
+        val (job, watcher, pending) = lock.withLock {
+            generation++
+            _state.value = SessionState.Failed(cause)
+            val snapshot = Triple(connectJob, watchJob, attempt)
+            connectJob = null
+            watchJob = null
+            attempt = null
+            snapshot
+        }
+        pending?.completeExceptionally(cause)
+        withContext(NonCancellable) {
+            job?.cancelAndJoin()
+            watcher?.cancelAndJoin()
+            transport.close()
+        }
+    }
+
     /** [MaxTransport.request] on the current connection. */
     suspend fun request(opcode: Opcode, payload: Any?): TransportPacket = transport.request(opcode, payload)
 

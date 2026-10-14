@@ -2079,6 +2079,18 @@ class MaxIosClient internal constructor(
     }
 
     /**
+     * Call state changes pushed by the server, in arrival order: [IosCallUpdate.kind] is
+     * `acceptedElsewhere` (`NOTIF_CALL_ACCEPTED` 120: answered on another device of this account,
+     * stop ringing) or `ended` (`NOTIF_CALL_END` 121: ended or cancelled, close the call UI), for
+     * [IosCallUpdate.conversationId] (the same id as [IosIncomingCall.conversationId]).
+     */
+    fun watchCallUpdates(onEach: (IosCallUpdate) -> Unit): IosWatch = watch { c ->
+        c.callUpdates
+            .mapNotNull(::callUpdateSnapshot)
+            .watch(scope) { update -> guarded { onEach(update) } }
+    }
+
+    /**
      * Calls ringing for this account by `GET_INBOUND_CALLS` 103 ([com.maxly.core.calls.CallsApi.inboundCalls],
      * empty body). They cannot be answered (no `vcp`): the app shows "X is calling" with a call-back
      * button. [IosInboundCalls.shape] is the reply with no user content ([DiagnosticLog.redact]) for
@@ -4241,6 +4253,25 @@ internal fun callStart(signal: CallSignaling, userAgent: UserAgentInfo, joinLink
     joinLink = joinLink,
     isVideo = signal.isVideo,
 )
+
+/**
+ * A call state change ([MaxIosClient.watchCallUpdates]). [kind] is [ACCEPTED_ELSEWHERE] or [ENDED].
+ */
+class IosCallUpdate(
+    val kind: String,
+    val conversationId: String,
+) {
+    companion object {
+        const val ACCEPTED_ELSEWHERE: String = "acceptedElsewhere"
+        const val ENDED: String = "ended"
+    }
+}
+
+internal fun callUpdateSnapshot(event: MaxEvent): IosCallUpdate? = when (event) {
+    is MaxEvent.CallAcceptedElsewhere -> IosCallUpdate(IosCallUpdate.ACCEPTED_ELSEWHERE, event.conversationId)
+    is MaxEvent.CallEnded -> IosCallUpdate(IosCallUpdate.ENDED, event.conversationId)
+    else -> null
+}
 
 internal fun incomingCallSnapshot(
     event: MaxEvent.CallStart,

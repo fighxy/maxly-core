@@ -180,6 +180,12 @@ enum class Opcode(val value: Int) {
     STICKER_SUGGEST(194),
 
     // ── Notifications (server pushes) ───────────────────────────────
+    /** A call of this account was accepted on another device of the same account: `{conversationId}`. */
+    NOTIF_CALL_ACCEPTED(120),
+
+    /** A call ended or was cancelled (hung up, missed, rejected elsewhere): `{conversationId}`. */
+    NOTIF_CALL_END(121),
+
     NOTIF_MESSAGE(128),
     NOTIF_TYPING(129),
     NOTIF_MARK(130),

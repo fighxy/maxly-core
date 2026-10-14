@@ -141,6 +141,26 @@ sealed interface MaxEvent {
     ) : MaxEvent
 
     /**
+     * A call was accepted on another device of this account (`NOTIF_CALL_ACCEPTED` 120,
+     * `{conversationId}`): stop ringing for [conversationId] here.
+     */
+    data class CallAcceptedElsewhere(
+        val conversationId: String,
+        override val opcode: Int,
+        override val raw: Any?,
+    ) : MaxEvent
+
+    /**
+     * A call ended or was cancelled before it was answered here (`NOTIF_CALL_END` 121,
+     * `{conversationId}`): drop the ringing or active call UI for [conversationId].
+     */
+    data class CallEnded(
+        val conversationId: String,
+        override val opcode: Int,
+        override val raw: Any?,
+    ) : MaxEvent
+
+    /**
      * Chat folders changed on the server, e.g. chats pinned, unpinned or reordered on another
      * device (`NOTIF_FOLDERS` 277). The payload carries `folders` (a list) and / or `folder` (one),
      * both merged into [folders], plus optional `foldersOrder` and `folderSync` (schema as used by

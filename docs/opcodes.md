@@ -21,6 +21,8 @@
 
 | code | имя | слой | источник payload |
 |------|-----|------|------------------|
+| 120 | `NOTIF_CALL_ACCEPTED` | `MaxEvent.CallAcceptedElsewhere` | `{conversationId}`: звонок принят на другом устройстве аккаунта |
+| 121 | `NOTIF_CALL_END` | `MaxEvent.CallEnded` | `{conversationId}`: звонок завершён или отменён |
 | 137 | `NOTIF_CALL_START` | `MaxEvent.CallStart` + `ConversationParams.decode` | kolibri `kolibri-net/src/calls/` (vcp: `<rawLen>:<base64(LZ4-block(JSON))>`). `callerId` + строковый `conversationId` обязательны; битый `vcp` оставляет `params = null` |
 | 79 | `VIDEO_CHAT_HISTORY` | `CallsApi.history` → `CallLogEntry` | KometTeam/Komet `CallsModule.fetchHistory`: **request** `{}`; **reply** `{history: [{message: {id, time, sender, attaches: [{_type: "CALL", contactIds?, duration, hangupType, callType?}]}}]}`. Пункты без `CALL`-вложения пропускаются |
 | 158 | `OK_TOKEN` | `CallsApi.requestCallsToken` / `MaxApi.calls` | **request** — пустой map `{}` (msgpack `80`). **reply** `{token, token_lifetime_ts?, token_refresh_ts?}` — observed-not-ref (заметки third-party, не kolibri/PyMax) |

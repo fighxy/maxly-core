@@ -79,6 +79,7 @@ import com.maxly.core.media.OutgoingAttachment
 import com.maxly.core.media.OutgoingMedia
 import com.maxly.core.media.UploadProgress
 import com.maxly.core.media.defaultMediaHttp
+import com.maxly.core.protocol.CmdType
 import com.maxly.core.protocol.DefaultMessagePackCodec
 import com.maxly.core.protocol.Opcode
 import com.maxly.core.session.DEFAULT_HOST
@@ -115,6 +116,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -334,6 +336,13 @@ class MaxClient @Throws(Exception::class) constructor(
     /** Typed pushes. Hot, no replay. */
     val events: MaxEvents = MaxEvents(session)
 
+    /**
+     * Call state pushes for the app's call UI: [MaxEvent.CallAcceptedElsewhere] (`NOTIF_CALL_ACCEPTED`
+     * 120, answered on another device) and [MaxEvent.CallEnded] (`NOTIF_CALL_END` 121, ended or
+     * cancelled), each with its `conversationId`, in arrival order.
+     */
+    val callUpdates: Flow<MaxEvent> get() = events.all.filter { it is MaxEvent.CallAcceptedElsewhere || it is MaxEvent.CallEnded }
+
     /** Local state (chats, messages, users, presence, typing, read marks). */
     val store: MaxStore = MaxStore(config.messageLimit)
 
@@ -450,11 +459,32 @@ class MaxClient @Throws(Exception::class) constructor(
                 if (r != null && log != null) runCatching { log(DiagnosticLog.serverRedirect(r)) }
             }
         }
+        this.scope.launch {
+            // failover-hosts of the server config: kept for every later connect (not cleared on logout)
+            _accountConfig.collect { c ->
+                val hosts = c?.failoverHosts.orEmpty()
+                if (hosts.isNotEmpty()) session.transport.setFailoverHosts(hosts)
+            }
+        }
         if (config.presenceSweepIntervalMs > 0) {
             presenceJob = this.scope.launch {
                 while (true) {
                     delay(config.presenceSweepIntervalMs)
                     expirePresence()
+                }
+            }
+        }
+        // the server ends the login on its own: an ERROR with a session-ending code on any request
+        // of a logged-in session, or a pushed LOGOUT 20. Both end like a refused LOGIN token.
+        session.transport.onServerError = { e ->
+            if (LoginRejection.of(e) != null && loggedInFlag.value && session.state.value is SessionState.Online) {
+                this.scope.launch { session.terminate(InvalidTokenException(e)) }
+            }
+        }
+        this.scope.launch {
+            session.reliablePushes.collect { p ->
+                if (p.opcode == Opcode.LOGOUT.value && p.cmd == CmdType.PUSH.value.toInt() && loggedInFlag.value) {
+                    session.terminate(InvalidTokenException.loggedOut(p))
                 }
             }
         }

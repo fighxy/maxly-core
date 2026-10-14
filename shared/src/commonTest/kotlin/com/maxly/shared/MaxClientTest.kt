@@ -20,6 +20,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -695,5 +697,109 @@ class MaxClientTest {
         assertFailsWith<IllegalArgumentException> { DeviceProfile.requireAndroid(UserAgentInfo(deviceType = "WEB")) }
         DeviceProfile.requireAndroid(DeviceProfile.android)
         assertEquals("Pixel 8", DeviceProfile.android.deviceName)
+    }
+
+    @Test
+    fun serverLogoutPushEndsTheSession() = runTest {
+        val kv = InMemoryKeyValueStore()
+        val factory = ScriptedConnectionFactory()
+        val c = smsLogin(kv, factory)
+        assertEquals(ClientState.Ready(5), c.state.value)
+        factory.lastConnection!!.feed(push(Opcode.LOGOUT.value, emptyMap<String, Any?>()))
+        runCurrent()
+        val s = assertIs<ClientState.TokenRejected>(c.state.value)
+        assertEquals(com.maxly.core.auth.LoginRejection.LOGGED_OUT, s.reason)
+        assertTrue(s.tokenCleared)
+        assertNull(CredentialStore(kv, "max.default").load()!!.token)
+    }
+
+    @Test
+    fun sessionEndingErrorOnAnyRequestEndsTheSession() = runTest {
+        for ((key, reason) in listOf(
+            "session.invalid.state" to com.maxly.core.auth.LoginRejection.SESSION_INVALID,
+            "login.token" to com.maxly.core.auth.LoginRejection.TOKEN,
+            "login.blocked" to com.maxly.core.auth.LoginRejection.BLOCKED,
+        )) {
+            val kv = InMemoryKeyValueStore()
+            val factory = ScriptedConnectionFactory()
+            val c = smsLogin(kv, factory)
+            val profile = async { runCatching { c.updateProfile("New") } }
+            runCurrent()
+            factory.lastConnection!!.fail(Opcode.PROFILE, mapOf("error" to key))
+            assertTrue(profile.await().isFailure)
+            runCurrent()
+            val s = assertIs<ClientState.TokenRejected>(c.state.value, key)
+            assertEquals(reason, s.reason)
+            assertNull(CredentialStore(kv, "max.default").load()!!.token)
+        }
+    }
+
+    @Test
+    fun otherServerErrorsKeepTheSession() = runTest {
+        val kv = InMemoryKeyValueStore()
+        val factory = ScriptedConnectionFactory()
+        val c = smsLogin(kv, factory)
+        val profile = async { runCatching { c.updateProfile("New") } }
+        runCurrent()
+        factory.lastConnection!!.fail(Opcode.PROFILE, mapOf("error" to "proto.payload"))
+        assertTrue(profile.await().isFailure)
+        runCurrent()
+        assertEquals(ClientState.Ready(5), c.state.value)
+        assertEquals("login-2", CredentialStore(kv, "max.default").load()!!.token)
+    }
+
+    @Test
+    fun networkErrorDuringLoginReconnectsAndKeepsTheToken() = runTest {
+        val kv = InMemoryKeyValueStore()
+        smsLogin(kv, ScriptedConnectionFactory()).disconnect()
+        val factory = ScriptedConnectionFactory()
+        val reconnecting = config.copy(transport = quiet.copy(autoReconnect = true))
+        val c = client(kv, factory, backgroundScope, reconnecting)
+        val starting = async { c.start() }
+        runCurrent()
+        val conn = factory.lastConnection!!
+        conn.answer(Opcode.SESSION_INIT, mapOf("callsSeed" to seed))
+        runCurrent()
+        assertNotNull(conn.takeWritten()) // LOGIN is in flight
+        conn.close() // the network drops before the reply
+        assertIs<ClientState.Reconnecting>(starting.await())
+        assertEquals("login-2", CredentialStore(kv, "max.default").load()!!.token)
+        c.disconnect()
+    }
+
+    @Test
+    fun failoverHostsFromTheServerConfigReachTheTransport() = runTest {
+        val factory = ScriptedConnectionFactory()
+        val c = client(InMemoryKeyValueStore(), factory, backgroundScope)
+        val starting = async { c.start() }
+        runCurrent()
+        val conn = factory.lastConnection!!
+        conn.answer(Opcode.SESSION_INIT, mapOf("callsSeed" to seed))
+        starting.await()
+        val verify = async { c.verifyCode("tmp", "1") }
+        runCurrent()
+        conn.answer(Opcode.AUTH, mapOf("tokenAttrs" to mapOf("LOGIN" to mapOf("token" to "t"))))
+        runCurrent()
+        val reply = loginReply(null) + mapOf("config" to mapOf("hash" to "h", "server" to mapOf("failover-hosts" to listOf("f1.test", "f2.test:444"))))
+        conn.answer(Opcode.LOGIN, reply)
+        verify.await()
+        runCurrent()
+        assertEquals(
+            listOf(com.maxly.core.transport.FailoverHost("f1.test", 443), com.maxly.core.transport.FailoverHost("f2.test", 444)),
+            c.session.transport.failoverHosts,
+        )
+    }
+
+    @Test
+    fun callPushesReachCallUpdates() = runTest {
+        val factory = ScriptedConnectionFactory()
+        val c = smsLogin(InMemoryKeyValueStore(), factory)
+        val got = async { c.callUpdates.take(2).toList() }
+        runCurrent()
+        factory.lastConnection!!.feed(push(120, mapOf("conversationId" to "c1")))
+        factory.lastConnection!!.feed(push(121, mapOf("conversationId" to "c1")))
+        val events = got.await()
+        assertEquals("c1", assertIs<MaxEvent.CallAcceptedElsewhere>(events[0]).conversationId)
+        assertEquals("c1", assertIs<MaxEvent.CallEnded>(events[1]).conversationId)
     }
 }

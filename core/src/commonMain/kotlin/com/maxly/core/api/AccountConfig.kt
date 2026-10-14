@@ -196,6 +196,13 @@ data class AccountConfig(
     val editTimeoutSeconds: Long
         get() = server["edit-timeout"].asLong()?.takeIf { it >= 0 } ?: 0L
 
+    /**
+     * `config.server["failover-hosts"]`: hosts to try in order when the primary host cannot be
+     * reached (`host` or `host:port` strings). Empty when absent.
+     */
+    val failoverHosts: List<String>
+        get() = (server["failover-hosts"] as? List<*>).orEmpty().mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+
     /** `config.server["invite-link"]` as a full URL ([normalizeLink]), `null` when absent. */
     val inviteLink: String?
         get() = normalizeLink(server["invite-link"]?.toString())

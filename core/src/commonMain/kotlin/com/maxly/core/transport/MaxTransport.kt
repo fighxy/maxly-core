@@ -231,10 +231,22 @@ class MaxTransport(
         val reply = requestRaw(opcode, payload)
         return when (reply.header.cmd) {
             CmdType.OK.value -> reply
-            CmdType.ERROR.value -> throw ServerErrorException.from(reply)
+            CmdType.ERROR.value -> {
+                val e = ServerErrorException.from(reply)
+                onServerError?.let { hook -> runCatching { hook(e) } }
+                throw e
+            }
             else -> throw NotFoundException(reply)
         }
     }
+
+    /**
+     * Called with every ERROR reply [request] turns into a [ServerErrorException], before it is
+     * thrown to the caller (the session uses it to end the login on `login.token` and friends).
+     * Must be quick and must not throw (an exception is dropped).
+     */
+    @kotlin.concurrent.Volatile
+    var onServerError: ((ServerErrorException) -> Unit)? = null
 
     /**
      * Like [request], but returns the reply for any `cmd` (OK, NOT_FOUND or ERROR) instead of
@@ -348,12 +360,7 @@ class MaxTransport(
         val cfg = config
         _state.value = ConnectionState.Connecting
         val conn = try {
-            val proxy = cfg.proxyUrl?.let(ProxyConfig::parse)
-            val tls = TlsOptions(cfg.insecureTls, cfg.trustMincifryCa, cfg.connectTimeout)
-            withTimeout(cfg.connectTimeout) { factory.open(cfg.host, cfg.port, tls, proxy) }
-        } catch (e: TimeoutCancellationException) {
-            _state.value = ConnectionState.Disconnected
-            throw ConnectTimeoutException("connect to ${cfg.host}:${cfg.port} timed out after ${cfg.connectTimeout}")
+            openWithFailover(cfg)
         } catch (e: Throwable) {
             _state.value = ConnectionState.Disconnected
             throw e
@@ -378,6 +385,49 @@ class MaxTransport(
         }
         if (reader.isActive) _state.value = ConnectionState.Connected
         return reader
+    }
+
+    /**
+     * Opens a connection to the configured host and, when that fails (error or connect timeout),
+     * to each of [failoverHosts] in order. Throws the primary host's error when every host failed;
+     * the caller then waits out the usual backoff. Cancellation is never swallowed.
+     */
+    private suspend fun openWithFailover(cfg: TransportConfig): RawConnection {
+        val proxy = cfg.proxyUrl?.let(ProxyConfig::parse)
+        val tls = TlsOptions(cfg.insecureTls, cfg.trustMincifryCa, cfg.connectTimeout)
+        val primary = FailoverHost(cfg.host, cfg.port)
+        val targets = listOf(primary) + failoverHosts.filter { it != primary }
+        var firstError: Throwable? = null
+        for (target in targets) {
+            try {
+                return withTimeout(cfg.connectTimeout) { factory.open(target.host, target.port, tls, proxy) }
+            } catch (e: TimeoutCancellationException) {
+                if (firstError == null) {
+                    firstError = ConnectTimeoutException("connect to ${target.host}:${target.port} timed out after ${cfg.connectTimeout}")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                if (firstError == null) firstError = e
+            }
+        }
+        throw firstError ?: ConnectionClosedException("no host to connect to")
+    }
+
+    /**
+     * Hosts tried in order when connecting to the configured host fails (server config
+     * `failover-hosts`, see [setFailoverHosts]). Empty by default.
+     */
+    @kotlin.concurrent.Volatile
+    var failoverHosts: List<FailoverHost> = emptyList()
+        private set
+
+    /**
+     * Replaces [failoverHosts] with [hosts] (`host` or `host:port`; a missing or bad port means the
+     * configured port). Blank entries and duplicates are dropped. Takes effect on the next connect.
+     */
+    fun setFailoverHosts(hosts: List<String>) {
+        failoverHosts = hosts.mapNotNull { FailoverHost.parse(it, config.port) }.distinct()
     }
 
     /**
@@ -631,5 +681,22 @@ class MaxTransport(
         /** A keepalive the server sends on its own: opcode PING with `cmd` 0 (a request, not a reply). */
         private fun isServerPing(header: PacketHeader): Boolean =
             header.cmd == CmdType.REQUEST.value && header.opcodeValue == Opcode.PING.value
+    }
+}
+
+/** One `failover-hosts` entry: where [MaxTransport] connects when the primary host is unreachable. */
+data class FailoverHost(val host: String, val port: Int) {
+    companion object {
+        /** Parses `host` or `host:port`; `null` for a blank entry. */
+        fun parse(entry: String, defaultPort: Int): FailoverHost? {
+            val e = entry.trim()
+            if (e.isEmpty()) return null
+            val i = e.lastIndexOf(':')
+            if (i > 0) {
+                val port = e.substring(i + 1).toIntOrNull()
+                if (port != null && port in 1..65535) return FailoverHost(e.substring(0, i), port)
+            }
+            return FailoverHost(e, defaultPort)
+        }
     }
 }
