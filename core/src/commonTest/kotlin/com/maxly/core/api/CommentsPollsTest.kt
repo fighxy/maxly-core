@@ -34,6 +34,23 @@ class CommentsPollsTest {
     private fun messages(sink: ScriptSink) = MaxApi(sink) { now }.messages
 
     @Test
+    fun botStartIsAControlMessageWithoutText() = runTest {
+        val sink = ScriptSink(msg(7), msg(8))
+        val api = messages(sink)
+        assertEquals(7L, api.sendBotStart(100).id)
+        assertEquals(Opcode.MSG_SEND, sink.opcodes[0])
+        val payload = sink.sent[0].second as Map<*, *>
+        assertEquals(setOf("chatId", "message"), payload.keys)
+        val message = payload["message"] as Map<*, *>
+        assertEquals(setOf("cid", "attaches"), message.keys)
+        assertEquals(true, (message["cid"] as Long) < 0)
+        assertEquals(listOf(mapOf("_type" to "CONTROL", "event" to "botStarted")), message["attaches"])
+        api.sendBotStart(100, "ref42")
+        val second = ((sink.sent[1].second as Map<*, *>)["message"] as Map<*, *>)["attaches"]
+        assertEquals(listOf(mapOf("_type" to "CONTROL", "event" to "botStarted", "startPayload" to "ref42")), second)
+    }
+
+    @Test
     fun scheduledAndPoll() = runTest {
         val sink = ScriptSink(msg(1), msg(2))
         val api = messages(sink)

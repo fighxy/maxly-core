@@ -394,6 +394,22 @@ class MessagesApi(
         return requireMessage(sink.request(Opcode.MSG_SEND, payload), Opcode.MSG_SEND, chatId)
     }
 
+    /**
+     * Starts (or restarts) the bot of dialog [chatId]: `MSG_SEND` with one `CONTROL` attach
+     * `{event: "botStarted", startPayload?}` and no text, the "Начать" button of the bot chat
+     * (schema of KometTeam/Komet `MessagesModule.sendBotStart`). [startPayload] is the `start`
+     * parameter of a bot link, left out when `null`.
+     */
+    suspend fun sendBotStart(chatId: Long, startPayload: String? = null): MaxMessage {
+        val control = linkedMapOf<String, Any?>("_type" to "CONTROL", "event" to BOT_STARTED)
+        if (startPayload != null) control["startPayload"] = startPayload
+        val payload = linkedMapOf<String, Any?>(
+            "chatId" to chatId,
+            "message" to linkedMapOf<String, Any?>("cid" to -cids.next(), "attaches" to listOf(control)),
+        )
+        return requireMessage(sink.request(Opcode.MSG_SEND, payload), Opcode.MSG_SEND, chatId)
+    }
+
     /** Sends a poll (`MSG_SEND` with one PyMax `Poll` attach, no text). */
     suspend fun sendPoll(chatId: Long, poll: com.maxly.core.media.OutgoingAttachment.Poll, notify: Boolean = true): MaxMessage {
         val payload = sendMessagePayload(chatId, null, cids.next(), null, notify, attaches = listOf(poll.toPayload()))
@@ -620,6 +636,11 @@ class MessagesApi(
             ),
             "notify" to notify,
         )
+
+    companion object {
+        /** `CONTROL` event of the bot chat's "Начать" ([sendBotStart]). */
+        const val BOT_STARTED: String = "botStarted"
+    }
 }
 
 internal fun rawMap(reply: TransportPacket): Map<*, *> = reply.payload as? Map<*, *> ?: emptyMap<Any?, Any?>()

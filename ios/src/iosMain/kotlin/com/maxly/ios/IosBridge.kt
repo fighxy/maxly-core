@@ -1901,6 +1901,19 @@ class MaxIosClient internal constructor(
         runUnit(onResult) { c -> c.cancelScheduledMessages(parseId(chatId), messageIds.map { parseId(it) }) }
     }
 
+    /**
+     * Starts or restarts the bot of dialog [chatId] (the "Начать" button, [MessagesApi.sendBotStart]):
+     * a `CONTROL` `botStarted` message, stored like a sent one.
+     */
+    fun startBot(chatId: String, onResult: (IosMessage?, String?, String?) -> Unit) {
+        perform(onResult, { null }) { c ->
+            val id = parseId(chatId)
+            val sent = c.api.messages.sendBotStart(id)
+            c.store.putSentMessage(id, sent)
+            messageSnapshot(sent, chatId, c.store.state.value)
+        }
+    }
+
     /** Sends a poll. Fewer than two answers is an error. */
     fun sendPoll(chatId: String, title: String, answers: List<String>, onResult: (IosMessage?, String?, String?) -> Unit) {
         perform(onResult, { null }) { c ->
