@@ -1325,7 +1325,7 @@ class MaxClient @Throws(Exception::class) constructor(
     }
 
     /** The server refused 219 as an unknown opcode: [ownStoryArchive] keeps to the current stories. */
-    @Volatile private var archiveRefused = false
+    @kotlin.concurrent.Volatile private var archiveRefused = false
 
     private fun readSetting(key: String): String? = try {
         settings.get(key)
