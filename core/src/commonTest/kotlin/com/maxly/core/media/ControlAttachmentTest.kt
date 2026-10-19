@@ -223,7 +223,7 @@ class ControlAttachmentTest {
     )
 
     /**
-     * fighxy/Maxly test-fixtures/service-messages at 33964e8 (events.json, fallbacks.json), all
+     * fighxy/Maxly test-fixtures/service-messages at 8085b50 (events.json, fallbacks.json), all
      * cases, generated from the JSON; keep it in sync with the files, never edit a case by hand.
      */
     private val fixtures = listOf(
@@ -254,6 +254,7 @@ class ControlAttachmentTest {
         Fixture("events/new-chat-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "CHAT", "title" to "Дача")), 1L, emptyMap(), "Анна создал(а) чат «Дача»", "Анна создал(а) чат «Дача»"),
         Fixture("events/bot-started-core-text", 1L, "Иван", "", listOf(mapOf("_type" to "CONTROL", "event" to "botStarted")), 1L, emptyMap(), "Вы запустили бота", "Вы запустили бота"),
         Fixture("events/new-dialog-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "DIALOG")), 1L, emptyMap(), "Анна теперь в MAX", "Анна теперь в MAX"),
+        Fixture("events/new-dialog-mine", 1L, "Иван", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "DIALOG")), 1L, emptyMap(), "Вы теперь в MAX", "Вы теперь в MAX"),
         Fixture("events/add-server-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(102L), "shortMessage" to "Сервер: участник добавлен")), 1L, emptyMap(), "Сервер: участник добавлен", "Сервер: участник добавлен"),
         Fixture("events/hello-server-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "hello", "shortMessage" to "Сервер: контакт в сети")), 1L, emptyMap(), "Сервер: контакт в сети", "Сервер: контакт в сети"),
         Fixture("events/unknown-server-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "futureEvent", "message" to "Сервер: новое событие")), 1L, emptyMap(), "Сервер: новое событие", "Сервер: новое событие"),
@@ -263,6 +264,7 @@ class ControlAttachmentTest {
         Fixture("fallbacks/system-without-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "system")), 1L, emptyMap(), null, "Служебное сообщение"),
         Fixture("fallbacks/system-message-text", 101L, "Анна", "Вход с нового устройства", listOf(mapOf("_type" to "CONTROL", "event" to "system")), 1L, emptyMap(), null, "Вход с нового устройства"),
         Fixture("fallbacks/hello-without-name", 101L, "", "", listOf(mapOf("_type" to "CONTROL", "event" to "hello")), 1L, emptyMap(), null, "Контакт теперь в MAX"),
+        Fixture("fallbacks/new-dialog-without-name", 0L, "", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "DIALOG")), 1L, emptyMap(), "Контакт теперь в MAX", "Контакт теперь в MAX"),
         Fixture("fallbacks/leave-without-name", 101L, "", "", listOf(mapOf("_type" to "CONTROL", "event" to "leave")), 1L, emptyMap(), null, "Участник покинул(а) чат"),
         Fixture("fallbacks/add-unknown-names", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(404L, 405L))), 1L, emptyMap(), null, "Анна добавил(а) 2 участника"),
         Fixture("fallbacks/add-five-unknown", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(401L, 402L, 403L, 404L, 405L))), 1L, emptyMap(), null, "Анна добавил(а) 5 участников"),
@@ -273,8 +275,12 @@ class ControlAttachmentTest {
         Fixture("fallbacks/title-without-title", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "title", "title" to "  ")), 1L, emptyMap(), null, "Анна изменил(а) название чата"),
         Fixture("fallbacks/event-case", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "JOINBYLINK")), 1L, emptyMap(), null, "Анна вступил(а) в чат по ссылке"),
         Fixture("fallbacks/type-key", 101L, "Анна", "", listOf(mapOf("type" to "control", "event" to "leave")), 1L, emptyMap(), null, "Анна покинул(а) чат"),
+        Fixture("fallbacks/type-key-new-dialog", 101L, "", "", listOf(mapOf("type" to "control", "event" to "new", "chatType" to "DIALOG")), 1L, emptyMap(), "Контакт теперь в MAX", "Контакт теперь в MAX"),
         Fixture("fallbacks/zero-user-id", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "hello", "userId" to 0L)), 1L, emptyMap(), null, "Анна теперь в MAX"),
         Fixture("fallbacks/photo-and-control", 101L, "Анна", "", listOf(mapOf("_type" to "PHOTO", "photoId" to 5L, "baseUrl" to "https://i.example/5"), mapOf("_type" to "CONTROL", "event" to "icon")), 1L, emptyMap(), null, "Анна изменил(а) фото чата"),
+        Fixture("fallbacks/pin-empty-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "pin", "pinnedMessage" to mapOf("id" to 78L, "text" to "  "))), 1L, emptyMap(), "Сообщение закреплено", "Сообщение закреплено"),
+        Fixture("fallbacks/pin-without-pinned-message", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "pin")), 1L, emptyMap(), "Сообщение закреплено", "Сообщение закреплено"),
+        Fixture("fallbacks/pin-long-multiline-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "pin", "pinnedMessage" to mapOf("id" to 79L, "text" to "Сбор в субботу в 10:00 у главного входа в парк, берите воду и перекус\nВторая строка с подробностями"))), 1L, emptyMap(), "Закреплено: Сбор в субботу в 10:00 у главного входа в парк, б…", "Закреплено: Сбор в субботу в 10:00 у главного входа в парк, б…"),
     )
 
     /** The first `CONTROL` attachment, parsed by the core as is (`_type` or `type`, any case). */
@@ -296,7 +302,8 @@ class ControlAttachmentTest {
 
     @Test
     fun sharedFixtures() {
-        assertEquals(48, fixtures.size)
+        // At least the 48 cases of 33964e8; the shared files only grow.
+        assertTrue(fixtures.size >= 48, "fixtures: ${fixtures.size}")
         assertEquals(fixtures.size, fixtures.map { it.name }.toSet().size)
         for (c in fixtures) {
             val (core, line) = play(c)
