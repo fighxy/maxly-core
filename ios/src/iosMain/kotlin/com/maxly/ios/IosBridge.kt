@@ -2511,6 +2511,7 @@ class MaxIosClient internal constructor(
             this.presence = PresenceStatus.of(seen)
             this.mentionName = card.mentionName.orEmpty()
             this.avatarViewerUrls = user.avatarViewerUrls
+            this.avatarFullUrl = user.avatarFullUrl.orEmpty()
             this.photoId = user.photoId?.toString().orEmpty()
         }
     }
@@ -2977,15 +2978,19 @@ class IosChat(
         internal set
 
     /**
-     * Picture for a full-screen viewer and for saving, best first ([com.maxly.core.api.Chat.iconViewerUrls],
+     * Sized fallbacks for a full-screen viewer and for saving, best first ([com.maxly.core.api.Chat.iconViewerUrls],
      * for a dialog the peer's [com.maxly.core.api.MaxUser.avatarViewerUrls]): server sizes, try the
      * next one when a load fails. Empty without a picture. [avatarUrl] stays the list thumbnail.
      */
     var avatarViewerUrls: List<String> = emptyList()
         internal set
 
-    /** The first of [avatarViewerUrls], empty without a picture. */
-    val avatarFullUrl: String get() = avatarViewerUrls.firstOrNull().orEmpty()
+    /**
+     * The original picture for opening and saving (`baseRawUrl` / `baseRawIconUrl`, else the
+     * thumbnail's URL, with `fn` removed); empty without one. Fall back to [avatarViewerUrls].
+     */
+    var avatarFullUrl: String = ""
+        internal set
 
     /** The initializer without [hasWebApp] (`false`), kept so existing Swift and Kotlin callers stay unchanged. */
     constructor(
@@ -3053,15 +3058,19 @@ class IosProfile(
         internal set
 
     /**
-     * The picture for a full-screen viewer and for saving, best first (server sizes of the
+     * Sized fallbacks for a full-screen viewer and for saving, best first (server sizes of the
      * uncropped `baseRawUrl` / `baseRawIconUrl`, then of [avatarUrl]); try the next one when a load
      * fails. Empty without a picture. Older photos of a user: [MaxIosClient.loadContactPhotos].
      */
     var avatarViewerUrls: List<String> = emptyList()
         internal set
 
-    /** The first of [avatarViewerUrls], empty without a picture. */
-    val avatarFullUrl: String get() = avatarViewerUrls.firstOrNull().orEmpty()
+    /**
+     * The original picture for opening and saving (`baseRawUrl` / `baseRawIconUrl`, else the
+     * thumbnail's URL, with `fn` removed); empty without one. Fall back to [avatarViewerUrls].
+     */
+    var avatarFullUrl: String = ""
+        internal set
 
     /** The user's current avatar `photoId` as a decimal string, empty for chats or without one. */
     var photoId: String = ""
@@ -3111,15 +3120,19 @@ class IosContact(
         internal set
 
     /**
-     * The avatar for a full-screen viewer and for saving, best first ([MaxUser.avatarViewerUrls]:
+     * Sized fallbacks for a full-screen viewer and for saving, best first ([MaxUser.avatarViewerUrls]:
      * server sizes of the uncropped `baseRawUrl`, then of [avatarUrl]); try the next one when a
      * load fails. Empty without an avatar. Older photos: [MaxIosClient.loadContactPhotos].
      */
     var avatarViewerUrls: List<String> = emptyList()
         internal set
 
-    /** The first of [avatarViewerUrls], empty without an avatar. */
-    val avatarFullUrl: String get() = avatarViewerUrls.firstOrNull().orEmpty()
+    /**
+     * The original avatar for opening and saving ([MaxUser.avatarFullUrl]: `baseRawUrl`, else
+     * [avatarUrl], with `fn` removed); empty without one. Fall back to [avatarViewerUrls].
+     */
+    var avatarFullUrl: String = ""
+        internal set
 
     /** The current avatar's `photoId` as a decimal string, empty without one. */
     var photoId: String = ""
@@ -3737,6 +3750,12 @@ object IosImageSize {
 
     /** Full-screen / save candidates of an avatar, best first ([ImageSizes.viewerUrls]); blank URLs are skipped. */
     fun viewerUrls(rawUrl: String, baseUrl: String): List<String> = ImageSizes.viewerUrls(rawUrl, baseUrl)
+
+    /** The original picture ([ImageSizes.originalUrl]): [rawUrl], else [baseUrl], without `fn`; empty when both are blank. */
+    fun originalUrl(rawUrl: String, baseUrl: String): String = ImageSizes.originalUrl(rawUrl, baseUrl).orEmpty()
+
+    /** [url] without its `fn` query parameters ([ImageSizes.withoutFn]). */
+    fun withoutFn(url: String): String = ImageSizes.withoutFn(url)
 }
 
 /** One profile photo of [MaxIosClient.loadContactPhotos]: [url] as sent; [photoId] empty when unknown. */
@@ -4170,7 +4189,9 @@ internal fun chatSnapshot(chat: Chat, state: MaxState, config: AccountConfig? = 
         hasWebApp = state.chatHasWebApp(chat),
     ).apply {
         lastControl = controlOf(last, state)
-        avatarViewerUrls = chat.iconViewerUrls.ifEmpty { peer?.avatarViewerUrls.orEmpty() }
+        val own = chat.iconFullUrl != null
+        avatarViewerUrls = if (own) chat.iconViewerUrls else peer?.avatarViewerUrls.orEmpty()
+        avatarFullUrl = (if (own) chat.iconFullUrl else peer?.avatarFullUrl).orEmpty()
     }
 }
 
@@ -4302,6 +4323,7 @@ internal fun chatProfile(chat: Chat): IosProfile {
     ).apply {
         mentionName = chat.mentionName.orEmpty()
         avatarViewerUrls = chat.iconViewerUrls
+        avatarFullUrl = chat.iconFullUrl.orEmpty()
     }
 }
 
@@ -4352,6 +4374,7 @@ internal fun contactSnapshot(user: MaxUser, state: MaxState, ttlMs: Long = MaxSt
         this.presence = PresenceStatus.of(seen)
         this.mentionName = user.mentionName.orEmpty()
         this.avatarViewerUrls = user.avatarViewerUrls
+        this.avatarFullUrl = user.avatarFullUrl.orEmpty()
         this.photoId = user.photoId?.toString().orEmpty()
     }
 }

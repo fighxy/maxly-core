@@ -218,14 +218,21 @@ data class Chat(
     val baseRawIconUrl: String? get() = (raw["baseRawIconUrl"] as? String)?.takeIf { it.isNotBlank() }
 
     /**
-     * Candidates for opening the picture full screen or saving it, best first
+     * Sized fallbacks for opening the picture full screen or saving it, best first
      * ([com.maxly.core.media.ImageSizes.viewerUrls] of [baseRawIconUrl] and [baseIconUrl]); empty
      * without a picture.
      */
     val iconViewerUrls: List<String> get() = com.maxly.core.media.ImageSizes.viewerUrls(baseRawIconUrl, baseIconUrl)
 
-    /** The first of [iconViewerUrls], `null` without a picture. */
-    val iconFullUrl: String? get() = iconViewerUrls.firstOrNull()
+    /** The list thumbnail: [baseIconUrl] as sent, `null` without a picture. */
+    val iconThumbUrl: String? get() = baseIconUrl
+
+    /**
+     * The original picture for opening and saving: [baseRawIconUrl], else [baseIconUrl], without
+     * any `fn` ([com.maxly.core.media.ImageSizes.originalUrl]); `null` without a picture. When it
+     * fails to load, try [iconViewerUrls].
+     */
+    val iconFullUrl: String? get() = com.maxly.core.media.ImageSizes.originalUrl(baseRawIconUrl, baseIconUrl)
 
     companion object {
         fun from(value: Any?): Chat? {
@@ -325,14 +332,21 @@ data class MaxUser(
     val baseRawUrl: String? get() = (raw["baseRawUrl"] as? String)?.takeIf { it.isNotBlank() }
 
     /**
-     * Candidates for opening the avatar full screen or saving it, best first
+     * Sized fallbacks for opening the avatar full screen or saving it, best first
      * ([com.maxly.core.media.ImageSizes.viewerUrls] of [baseRawUrl] and [baseUrl]); empty without
      * an avatar. Older photos: [UsersApi.contactPhotos].
      */
     val avatarViewerUrls: List<String> get() = com.maxly.core.media.ImageSizes.viewerUrls(baseRawUrl, baseUrl)
 
-    /** The first of [avatarViewerUrls], `null` without an avatar. */
-    val avatarFullUrl: String? get() = avatarViewerUrls.firstOrNull()
+    /** The list thumbnail: [baseUrl] as sent, `null` when blank or absent. */
+    val avatarThumbUrl: String? get() = baseUrl?.takeIf { it.isNotBlank() }
+
+    /**
+     * The original avatar for opening and saving: [baseRawUrl], else [baseUrl], without any `fn`
+     * ([com.maxly.core.media.ImageSizes.originalUrl]); `null` without an avatar. When it fails to
+     * load, try [avatarViewerUrls]. The avatar's id is [photoId].
+     */
+    val avatarFullUrl: String? get() = com.maxly.core.media.ImageSizes.originalUrl(baseRawUrl, baseUrl)
 
     val displayName: String?
         get() = names.firstOrNull()?.let { n ->

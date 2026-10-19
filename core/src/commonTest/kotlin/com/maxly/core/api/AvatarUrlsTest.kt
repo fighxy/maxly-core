@@ -38,19 +38,41 @@ class AvatarUrlsTest {
     }
 
     @Test
+    fun withoutFnDropsOnlyTheSize() {
+        assertEquals("https://i/a", ImageSizes.withoutFn("https://i/a"))
+        assertEquals("https://i/a", ImageSizes.withoutFn("https://i/a&fn=sqr_64"))
+        assertEquals("https://i/a", ImageSizes.withoutFn("https://i/a?fn=sqr_64"))
+        assertEquals("https://i/a?e=1", ImageSizes.withoutFn("https://i/a?fn=w_480&e=1"))
+        assertEquals("https://i/a?e=1&s=2", ImageSizes.withoutFn("https://i/a?e=1&fn=w_480&s=2&fn=sqr_64"))
+        assertEquals("https://i/a?e=1#x", ImageSizes.withoutFn("https://i/a?e=1&fn=w_480#x"))
+        assertEquals("https://i/a?fnx=1", ImageSizes.withoutFn("https://i/a?fnx=1"))
+        assertEquals("https://i/r", ImageSizes.originalUrl("https://i/r&fn=w_1440", "https://i/b"))
+        assertEquals("https://i/b", ImageSizes.originalUrl(" ", "https://i/b?fn=sqr_720"))
+        assertNull(ImageSizes.originalUrl(null, ""))
+    }
+
+    @Test
     fun userCarriesTheRawAvatar() {
         val user = MaxUser.from(mapOf("id" to 5L, "baseUrl" to "https://i/b", "baseRawUrl" to "https://i/r", "photoId" to 77L))!!
         assertEquals("https://i/r", user.baseRawUrl)
         assertEquals(77L, user.photoId)
-        assertEquals("https://i/r&fn=w_1440", user.avatarFullUrl)
+        assertEquals("https://i/r", user.avatarFullUrl)
+        assertEquals("https://i/b", user.avatarThumbUrl)
         assertEquals(ImageSizes.viewerUrls("https://i/r", "https://i/b"), user.avatarViewerUrls)
 
         val old = MaxUser.from(mapOf("id" to 6L, "baseUrl" to "https://i/b", "baseRawUrl" to ""))!!
         assertNull(old.baseRawUrl)
-        assertEquals("https://i/b&fn=w_1440", old.avatarFullUrl)
+        assertEquals("https://i/b", old.avatarFullUrl)
+
+        // a thumbnail URL that already asks for a size: the original drops it
+        val sized = MaxUser.from(mapOf("id" to 8L, "baseUrl" to "https://i/b?e=1&fn=sqr_288&s=x"))!!
+        assertEquals("https://i/b?e=1&s=x", sized.avatarFullUrl)
+        assertEquals("https://i/b?e=1&fn=sqr_288&s=x", sized.avatarThumbUrl)
+        assertEquals("https://i/b?e=1&s=x&fn=w_1440", sized.avatarViewerUrls.first())
 
         val none = MaxUser.from(mapOf("id" to 7L))!!
         assertNull(none.avatarFullUrl)
+        assertNull(none.avatarThumbUrl)
         assertEquals(emptyList(), none.avatarViewerUrls)
     }
 
@@ -59,7 +81,11 @@ class AvatarUrlsTest {
         val chat = Chat.from(mapOf("id" to 9L, "type" to "CHAT", "baseIconUrl" to "https://i/c", "baseRawIconUrl" to "https://i/cr"))!!
         assertEquals("https://i/c", chat.baseIconUrl)
         assertEquals("https://i/cr", chat.baseRawIconUrl)
-        assertEquals("https://i/cr&fn=w_1440", chat.iconFullUrl)
+        assertEquals("https://i/cr", chat.iconFullUrl)
+        assertEquals("https://i/c", chat.iconThumbUrl)
+        assertEquals("https://i/cr&fn=w_1440", chat.iconViewerUrls.first())
+        val plain = Chat.from(mapOf("id" to 11L, "type" to "CHANNEL", "baseIconUrl" to "https://i/p?fn=sqr_96&e=2"))!!
+        assertEquals("https://i/p?e=2", plain.iconFullUrl)
         val dialog = Chat.from(mapOf("id" to 10L, "type" to "DIALOG", "baseIconUrl" to " "))!!
         assertNull(dialog.baseIconUrl)
         assertNull(dialog.baseRawIconUrl)

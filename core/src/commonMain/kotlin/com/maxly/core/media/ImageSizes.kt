@@ -124,12 +124,13 @@ object ImageSizes {
      * Android app lists them for its avatar viewer: for each class from max down to tiny
      * ([WIDTH_MAX] / [SQUARE_MAX] ... [WIDTH_TINY] / [SQUARE_TINY]) the uncropped [rawUrl] by width,
      * then [rawUrl] square, then [baseUrl] by width, then [baseUrl] square. A blank or `null` URL
-     * is skipped, repeats are dropped; both missing gives an empty list. Try them in order and
+     * is skipped, repeats are dropped; both missing gives an empty list. An `fn` already in a URL
+     * is replaced ([withoutFn]). Try them in order and
      * fall back to the next one when a load fails. Nothing is upscaled: these are server sizes.
      */
     fun viewerUrls(rawUrl: String?, baseUrl: String?): List<String> {
-        val raw = rawUrl?.takeIf { it.isNotBlank() }
-        val base = baseUrl?.takeIf { it.isNotBlank() }
+        val raw = rawUrl?.takeIf { it.isNotBlank() }?.let(::withoutFn)
+        val base = baseUrl?.takeIf { it.isNotBlank() }?.let(::withoutFn)
         if (raw == null && base == null) return emptyList()
         val out = LinkedHashSet<String>()
         for (i in VIEWER_WIDTH.indices) {
@@ -139,6 +140,35 @@ object ImageSizes {
             }
         }
         return out.toList()
+    }
+
+    /**
+     * The original picture: the first non-blank of [rawUrl] and [baseUrl] with every `fn` query
+     * parameter removed ([withoutFn]); `null` when both are blank. No size is asked for, so the
+     * server serves the original (see the class notes). The Android app's own viewer asks for
+     * sized copies instead ([viewerUrls]): fall back to those when the original fails to load.
+     */
+    fun originalUrl(rawUrl: String?, baseUrl: String?): String? =
+        (rawUrl?.takeIf { it.isNotBlank() } ?: baseUrl?.takeIf { it.isNotBlank() })?.let(::withoutFn)
+
+    /**
+     * [url] without its `fn` query parameters, wherever they sit (`?fn=…` or `&fn=…`, also with
+     * no `?` before, as the app appends it). Other parameters (`expires`, signatures) and their
+     * order stay; a `?` left with nothing after it is dropped.
+     */
+    fun withoutFn(url: String): String {
+        val start = url.indexOfFirst { it == '?' || it == '&' }
+        if (start < 0) return url
+        val hashAt = url.indexOf('#', start).let { if (it < 0) url.length else it }
+        val head = url.substring(0, start)
+        val hasQuestion = url[start] == '?'
+        val parts = url.substring(start + 1, hashAt).split('&').filter { it.isNotEmpty() && it != "fn" && !it.startsWith("fn=") }
+        val query = when {
+            parts.isEmpty() -> ""
+            hasQuestion -> "?" + parts.joinToString("&")
+            else -> "&" + parts.joinToString("&")
+        }
+        return head + query + url.substring(hashAt)
     }
 
     /** The app's five classes (`fy0`), largest first. */
