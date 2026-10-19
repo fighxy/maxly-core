@@ -190,7 +190,22 @@ sealed interface Attachment {
         override val raw: Map<*, *>,
     ) : Attachment
 
-    /** Any other `_type` (CONTROL, CONTACT, CALL, SHARE, INLINE_KEYBOARD, ...) or a malformed entry. */
+    /**
+     * A service message (`_type: "CONTROL"`): chat created, member added or left, title changed,
+     * bot started and so on. Every field is optional and read defensively; the rest stays in
+     * [raw]. Known events: [ControlEvents]; see [controlFallbackText].
+     */
+    data class Control(
+        val event: String?,
+        val userId: Long?,
+        val userIds: List<Long>,
+        val title: String?,
+        val url: String?,
+        val chatType: String?,
+        override val raw: Map<*, *>,
+    ) : Attachment
+
+    /** Any other `_type` (CONTACT, CALL, SHARE, INLINE_KEYBOARD, ...) or a malformed entry. */
     data class Unknown(val type: String?, override val raw: Map<*, *>) : Attachment
 
     companion object {
@@ -220,6 +235,15 @@ sealed interface Attachment {
                     }
                     Poll(id, int("version"), m["title"] as? String, answers, PollFlag.of(int("settings") ?: 0), PollState.from(m["state"]), m)
                 }
+                "CONTROL" -> Control(
+                    m["event"] as? String,
+                    m["userId"].asLong(),
+                    (m["userIds"] as? List<*>).orEmpty().mapNotNull { it.asLong() },
+                    m["title"] as? String,
+                    m["url"] as? String,
+                    m["chatType"] as? String,
+                    m,
+                )
                 else -> null
             } ?: Unknown(type, m)
         }
@@ -228,3 +252,25 @@ sealed interface Attachment {
 
 /** [MaxMessage.attaches] parsed as [Attachment]s. */
 val MaxMessage.attachments: List<Attachment> get() = attaches.map(Attachment::from)
+
+/** `true` when the message is a service message (any attachment is [Attachment.Control]). */
+val MaxMessage.isService: Boolean get() = attachments.any { it is Attachment.Control }
+
+/** `CONTROL` event names used by this codebase. */
+object ControlEvents {
+    /** Group created ([com.maxly.core.api.ChatsApi.createGroup]). */
+    const val NEW: String = "new"
+
+    /** Bot chat started ([com.maxly.core.api.MessagesApi.sendBotStart]). */
+    const val BOT_STARTED: String = "botStarted"
+}
+
+/**
+ * A neutral Russian description of a known [Attachment.Control] event, or `null` for an unknown
+ * one (clients then show «Служебное сообщение»). Pure; never throws.
+ */
+fun controlFallbackText(control: Attachment.Control): String? = when (control.event) {
+    ControlEvents.NEW -> control.title?.takeIf { it.isNotBlank() }?.let { "Создан чат «$it»" } ?: "Чат создан"
+    ControlEvents.BOT_STARTED -> "Бот запущен"
+    else -> null
+}

@@ -17,6 +17,7 @@ import com.maxly.core.api.PollFlag
 import com.maxly.core.api.PollRef
 import com.maxly.core.api.PollState
 import com.maxly.core.media.Attachment
+import com.maxly.core.media.attachments
 import com.maxly.core.api.PinnedMessageState
 import com.maxly.core.api.PresenceInfo
 import com.maxly.core.api.PrivacyConfig
@@ -3171,7 +3172,21 @@ class IosMessage(
     /** The same formatting as a JSON array of wire elements (`[]` for plain text). */
     var elementsJson: String = "[]"
         internal set
+
+    /** Service message info (first `CONTROL` attachment), `null` for a regular message. */
+    var control: IosControl? = null
+        internal set
 }
+
+/**
+ * A service message (`CONTROL` attachment). [event] is empty when the server omitted it;
+ * [fallbackText] is a neutral Russian description of a known event, `null` otherwise (show
+ * «Служебное сообщение»).
+ */
+class IosControl(val event: String, val userIds: List<String>, val title: String?, val fallbackText: String?)
+
+internal fun Attachment.Control.toIos(): IosControl =
+    IosControl(event.orEmpty(), userIds.map { it.toString() }, title, com.maxly.core.media.controlFallbackText(this))
 
 /** Reactions of one message ([MaxIosClient.loadReactions]); [json] as [IosMessage.reactionsJson]. */
 class IosReactions(val messageId: String, val json: String)
@@ -4330,6 +4345,7 @@ internal fun messageSnapshot(message: MaxMessage, fallbackChatId: String, state:
         reactionsJson = if (withReactions) historyReactions(message, message.chatId ?: fallbackChatId.toLongOrNull(), state) else "",
     ).apply {
         updateTime = message.updateTime ?: 0L
+        control = message.attachments.firstNotNullOfOrNull { it as? Attachment.Control }?.toIos()
         marks = textMarksOf(message)
         elementsJson = TextElementsJson.write(message.textElements)
     }
