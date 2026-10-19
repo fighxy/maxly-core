@@ -67,7 +67,7 @@ data class MaxMessage(
         get() = ((raw["delayedAttributes"] as? Map<*, *>)?.get("notifySender") as? Boolean)
 
     companion object {
-        /** Parses [value]; `null` if it is not a map or lacks `id` / `time` / `type`. */
+        /** Parses [value]; `null` if it is not a map or lacks `id` / `time`. A missing `type` is `""`. */
         fun from(value: Any?, fallbackChatId: Long? = null): MaxMessage? {
             val outer = value as? Map<*, *> ?: return null
             val inner = outer["message"] as? Map<*, *>
@@ -80,7 +80,7 @@ data class MaxMessage(
                 sender = m["sender"].asLong(),
                 text = m["text"] as? String ?: "",
                 time = m["time"].asLong() ?: return null,
-                type = m["type"] as? String ?: return null,
+                type = m["type"] as? String ?: "",
                 cid = m["cid"].asLong(),
                 status = m["status"] as? String,
                 prevMessageId = m["prevMessageId"].asLong(),
@@ -210,7 +210,7 @@ data class Chat(
             val id = m["id"].asLong() ?: return null
             return Chat(
                 id = id,
-                type = m["type"] as? String ?: return null,
+                type = m["type"] as? String ?: "",
                 status = m["status"] as? String,
                 owner = m["owner"].asLong(),
                 title = m["title"] as? String,

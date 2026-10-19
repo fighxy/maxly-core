@@ -53,4 +53,48 @@ class ControlAttachmentTest {
         assertFalse(msg(listOf(mapOf("_type" to "PHOTO", "photoId" to 1))).isService)
         assertFalse(msg(emptyList()).isService)
     }
+
+    @Test
+    fun parsesServerTexts() {
+        val c = assertIs<Attachment.Control>(Attachment.from(mapOf("_type" to "CONTROL", "event" to "add", "message" to "Иван добавил Петра", "shortMessage" to "Пётр добавлен")))
+        assertEquals("Иван добавил Петра", c.message)
+        assertEquals("Пётр добавлен", c.shortMessage)
+        assertEquals("Пётр добавлен", controlFallbackText(c))
+        assertEquals("Иван добавил Петра", controlFallbackText(c.copy(shortMessage = null)))
+    }
+
+    @Test
+    fun serverTextsOfWrongTypeAreNull() {
+        val c = assertIs<Attachment.Control>(Attachment.from(mapOf("_type" to "CONTROL", "event" to "add", "message" to 5, "shortMessage" to listOf("x"))))
+        assertNull(c.message)
+        assertNull(c.shortMessage)
+        assertNull(controlFallbackText(c))
+    }
+
+    @Test
+    fun blankServerTextsAreIgnored() {
+        val c = Attachment.Control("leave", null, emptyList(), null, null, null, emptyMap<Any?, Any?>(), message = "Ушёл", shortMessage = "  ")
+        assertEquals("Ушёл", controlFallbackText(c))
+        assertNull(controlFallbackText(c.copy(message = "")))
+    }
+
+    @Test
+    fun knownEventsKeepOwnText() {
+        val c = Attachment.Control("botStarted", null, emptyList(), "Team", null, null, emptyMap<Any?, Any?>(), message = "m", shortMessage = "s")
+        assertEquals("Бот запущен", controlFallbackText(c))
+        assertEquals("Создан чат «Team»", controlFallbackText(c.copy(event = "new")))
+        assertEquals("Чат создан", controlFallbackText(c.copy(event = "new", title = " ")))
+    }
+
+    @Test
+    fun messageWithoutTypeIsKept() {
+        val m = MaxMessage.from(mapOf("id" to 1L, "time" to 2L, "text" to "", "attaches" to listOf(mapOf("_type" to "CONTROL", "event" to "add", "shortMessage" to "s"))))
+        assertEquals("", m?.type)
+        assertTrue(m!!.isService)
+        assertEquals("", MaxMessage.from(mapOf("message" to mapOf("id" to 3L, "time" to 4L)), fallbackChatId = 9L)?.type)
+        assertEquals("USER", MaxMessage.from(mapOf("id" to 1L, "time" to 2L, "type" to "USER"))?.type)
+        assertNull(MaxMessage.from(mapOf("time" to 2L, "type" to "USER")))
+        assertNull(MaxMessage.from(mapOf("id" to 1L, "type" to "USER")))
+        assertNull(MaxMessage.from(mapOf("time" to 2L)))
+    }
 }

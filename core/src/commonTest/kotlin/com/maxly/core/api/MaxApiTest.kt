@@ -341,7 +341,8 @@ class MaxApiTest {
         assertEquals(8L, m.prevMessageId)
         assertEquals("", m.text)
         assertEquals(1, m.attaches.size)
-        assertNull(MaxMessage.from(mapOf("id" to 1, "time" to 1)))
+        assertEquals("", MaxMessage.from(mapOf("id" to 1, "time" to 1))?.type)
+        assertNull(MaxMessage.from(mapOf("id" to 1, "type" to "USER")))
         assertNull(MaxMessage.from("x"))
     }
 

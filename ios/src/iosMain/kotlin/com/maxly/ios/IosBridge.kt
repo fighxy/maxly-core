@@ -3180,13 +3180,21 @@ class IosMessage(
 
 /**
  * A service message (`CONTROL` attachment). [event] is empty when the server omitted it;
- * [fallbackText] is a neutral Russian description of a known event, `null` otherwise (show
- * «Служебное сообщение»).
+ * [fallbackText] is a neutral Russian description of a known event, else the server's
+ * [shortMessage] / [message], `null` otherwise (show «Служебное сообщение»). [message] and
+ * [shortMessage] are the server's raw texts, if sent.
  */
-class IosControl(val event: String, val userIds: List<String>, val title: String?, val fallbackText: String?)
+class IosControl(
+    val event: String,
+    val userIds: List<String>,
+    val title: String?,
+    val fallbackText: String?,
+    val message: String?,
+    val shortMessage: String?,
+)
 
 internal fun Attachment.Control.toIos(): IosControl =
-    IosControl(event.orEmpty(), userIds.map { it.toString() }, title, com.maxly.core.media.controlFallbackText(this))
+    IosControl(event.orEmpty(), userIds.map { it.toString() }, title, com.maxly.core.media.controlFallbackText(this), message, shortMessage)
 
 /** Reactions of one message ([MaxIosClient.loadReactions]); [json] as [IosMessage.reactionsJson]. */
 class IosReactions(val messageId: String, val json: String)

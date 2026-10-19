@@ -194,6 +194,9 @@ sealed interface Attachment {
      * A service message (`_type: "CONTROL"`): chat created, member added or left, title changed,
      * bot started and so on. Every field is optional and read defensively; the rest stays in
      * [raw]. Known events: [ControlEvents]; see [controlFallbackText].
+     *
+     * [message] and [shortMessage] are the server's ready-made texts (`message`, `shortMessage`),
+     * if sent. They follow [raw] with `null` defaults so existing positional calls still compile.
      */
     data class Control(
         val event: String?,
@@ -203,6 +206,8 @@ sealed interface Attachment {
         val url: String?,
         val chatType: String?,
         override val raw: Map<*, *>,
+        val message: String? = null,
+        val shortMessage: String? = null,
     ) : Attachment
 
     /** Any other `_type` (CONTACT, CALL, SHARE, INLINE_KEYBOARD, ...) or a malformed entry. */
@@ -243,6 +248,8 @@ sealed interface Attachment {
                     m["url"] as? String,
                     m["chatType"] as? String,
                     m,
+                    m["message"] as? String,
+                    m["shortMessage"] as? String,
                 )
                 else -> null
             } ?: Unknown(type, m)
@@ -266,11 +273,12 @@ object ControlEvents {
 }
 
 /**
- * A neutral Russian description of a known [Attachment.Control] event, or `null` for an unknown
- * one (clients then show «Служебное сообщение»). Pure; never throws.
+ * A neutral Russian description of a known [Attachment.Control] event. For any other event it is
+ * the server's [Attachment.Control.shortMessage], else [Attachment.Control.message] (blank ones
+ * are skipped), else `null` (clients then show «Служебное сообщение»). Pure; never throws.
  */
 fun controlFallbackText(control: Attachment.Control): String? = when (control.event) {
     ControlEvents.NEW -> control.title?.takeIf { it.isNotBlank() }?.let { "Создан чат «$it»" } ?: "Чат создан"
     ControlEvents.BOT_STARTED -> "Бот запущен"
-    else -> null
+    else -> control.shortMessage?.takeIf { it.isNotBlank() } ?: control.message?.takeIf { it.isNotBlank() }
 }
