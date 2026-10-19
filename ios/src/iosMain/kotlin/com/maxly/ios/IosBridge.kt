@@ -2961,6 +2961,10 @@ class IosChat(
      */
     val hasWebApp: Boolean = false,
 ) {
+    /** Service info of the last message (its first `CONTROL` attachment), `null` for a regular one. */
+    var lastControl: IosControl? = null
+        internal set
+
     /** The initializer without [hasWebApp] (`false`), kept so existing Swift and Kotlin callers stay unchanged. */
     constructor(
         id: String,
@@ -3180,8 +3184,9 @@ class IosMessage(
 
 /**
  * A service message (`CONTROL` attachment). [event] is empty when the server omitted it;
- * [fallbackText] is a neutral Russian description of a known event, else the server's
- * [shortMessage] / [message], `null` otherwise (show «Служебное сообщение»). [message] and
+ * [fallbackText] is the server's [shortMessage] / [message], else a neutral Russian description
+ * of a known event («Вы» forms for the account, names from the store), `null` otherwise (show
+ * «Служебное сообщение»). [message] and
  * [shortMessage] are the server's raw texts, if sent.
  */
 class IosControl(
@@ -3195,6 +3200,17 @@ class IosControl(
 
 internal fun Attachment.Control.toIos(): IosControl =
     IosControl(event.orEmpty(), userIds.map { it.toString() }, title, com.maxly.core.media.controlFallbackText(this), message, shortMessage)
+
+/** [toIos] with «Вы» forms for the account ([MaxState.me]) and names of [actorId] (the sender) and members from [state]. */
+internal fun Attachment.Control.toIos(actorId: Long?, state: MaxState): IosControl = IosControl(
+    event.orEmpty(), userIds.map { it.toString() }, title,
+    com.maxly.core.media.controlFallbackText(this, state.me, actorId) { id -> state.displayName(id) },
+    message, shortMessage,
+)
+
+/** First `CONTROL` attachment of [message] for Swift, `null` for a regular message. */
+internal fun controlOf(message: MaxMessage?, state: MaxState): IosControl? =
+    message?.attachments?.firstNotNullOfOrNull { it as? Attachment.Control }?.toIos(message.sender, state)
 
 /** Reactions of one message ([MaxIosClient.loadReactions]); [json] as [IosMessage.reactionsJson]. */
 class IosReactions(val messageId: String, val json: String)
@@ -3594,6 +3610,10 @@ class IosEvent(
      * ([MaxIosClient.draftDiscardedAt]; `0` when the draft went without one).
      */
     var draft: IosDraft? = null
+        internal set
+
+    /** Service message info (first `CONTROL` attachment) of a `message` or `edited` event; `null` otherwise. */
+    var control: IosControl? = null
         internal set
 }
 
@@ -4072,7 +4092,7 @@ private fun chatSnapshot(chat: Chat, state: MaxState, config: AccountConfig? = n
         active = if (isActive(chat)) 1 else 0,
         lastTimeMs = last?.time ?: 0L,
         hasWebApp = state.chatHasWebApp(chat),
-    )
+    ).apply { lastControl = controlOf(last, state) }
 }
 
 /**
@@ -4353,7 +4373,7 @@ internal fun messageSnapshot(message: MaxMessage, fallbackChatId: String, state:
         reactionsJson = if (withReactions) historyReactions(message, message.chatId ?: fallbackChatId.toLongOrNull(), state) else "",
     ).apply {
         updateTime = message.updateTime ?: 0L
-        control = message.attachments.firstNotNullOfOrNull { it as? Attachment.Control }?.toIos()
+        control = controlOf(message, state)
         marks = textMarksOf(message)
         elementsJson = TextElementsJson.write(message.textElements)
     }
@@ -4553,6 +4573,7 @@ internal fun messageEvent(kind: String, message: MaxMessage, state: MaxState, wi
     ).apply {
         updateTime = message.updateTime ?: 0L
         marks = textMarksOf(message)
+        control = controlOf(message, state)
     }
 }
 

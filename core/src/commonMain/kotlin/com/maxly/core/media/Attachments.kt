@@ -208,6 +208,12 @@ sealed interface Attachment {
         override val raw: Map<*, *>,
         val message: String? = null,
         val shortMessage: String? = null,
+        /** New chat photo token (`photoToken`, [ControlEvents.ICON]). */
+        val photoToken: String? = null,
+        /** Added members see earlier history (`showHistory`, [ControlEvents.ADD]). */
+        val showHistory: Boolean? = null,
+        /** Deep-link payload of [ControlEvents.BOT_STARTED] (`startPayload`). */
+        val startPayload: String? = null,
     ) : Attachment
 
     /** Any other `_type` (CONTACT, CALL, SHARE, INLINE_KEYBOARD, ...) or a malformed entry. */
@@ -250,6 +256,9 @@ sealed interface Attachment {
                     m,
                     m["message"] as? String,
                     m["shortMessage"] as? String,
+                    m["photoToken"] as? String,
+                    m["showHistory"] as? Boolean,
+                    m["startPayload"] as? String,
                 )
                 else -> null
             } ?: Unknown(type, m)
@@ -263,22 +272,136 @@ val MaxMessage.attachments: List<Attachment> get() = attaches.map(Attachment::fr
 /** `true` when the message is a service message (any attachment is [Attachment.Control]). */
 val MaxMessage.isService: Boolean get() = attachments.any { it is Attachment.Control }
 
-/** `CONTROL` event names used by this codebase. */
+/** `CONTROL` event names. Servers may vary the case; [controlFallbackText] ignores it. */
 object ControlEvents {
-    /** Group created ([com.maxly.core.api.ChatsApi.createGroup]). */
+    /** Chat, channel or dialog created ([com.maxly.core.api.ChatsApi.createGroup]). */
     const val NEW: String = "new"
 
-    /** Bot chat started ([com.maxly.core.api.MessagesApi.sendBotStart]). */
+    /** Members added (`userIds`, `showHistory`). */
+    const val ADD: String = "add"
+
+    /** Members removed (`userIds` / `userId`). */
+    const val REMOVE: String = "remove"
+
+    /** The sender left the chat. */
+    const val LEAVE: String = "leave"
+
+    /** Chat renamed (`title`). */
+    const val TITLE: String = "title"
+
+    /** Chat photo changed (`url`, `photoToken`, `crop`). */
+    const val ICON: String = "icon"
+
+    /** A contact joined MAX (`userId`, else the sender). */
+    const val HELLO: String = "hello"
+
+    /** Server notice; only the server's text describes it. */
+    const val SYSTEM: String = "system"
+
+    /** The sender joined by an invite link. */
+    const val JOIN_BY_LINK: String = "joinByLink"
+
+    /** Message pinned; clients show it in the pinned bar. */
+    const val PIN: String = "pin"
+
+    /** Bot chat started ([com.maxly.core.api.MessagesApi.sendBotStart], `startPayload`). */
     const val BOT_STARTED: String = "botStarted"
 }
 
 /**
- * A neutral Russian description of a known [Attachment.Control] event. For any other event it is
- * the server's [Attachment.Control.shortMessage], else [Attachment.Control.message] (blank ones
- * are skipped), else `null` (clients then show «Служебное сообщение»). Pure; never throws.
+ * A neutral Russian line for a service message. The server's [Attachment.Control.shortMessage],
+ * else [Attachment.Control.message] (blank ones skipped) comes first; otherwise a known event gets
+ * its own text, «Вы» forms when [actorId] (the message sender) is [selfId], names from [nameOf]
+ * («Участник» / impersonal forms when unknown). [ControlEvents.SYSTEM], [ControlEvents.PIN] and
+ * unknown events without server text give `null` (clients then show «Служебное сообщение»).
+ * Pure; never throws.
  */
-fun controlFallbackText(control: Attachment.Control): String? = when (control.event) {
-    ControlEvents.NEW -> control.title?.takeIf { it.isNotBlank() }?.let { "Создан чат «$it»" } ?: "Чат создан"
-    ControlEvents.BOT_STARTED -> "Бот запущен"
-    else -> control.shortMessage?.takeIf { it.isNotBlank() } ?: control.message?.takeIf { it.isNotBlank() }
+fun controlFallbackText(
+    control: Attachment.Control,
+    selfId: Long? = null,
+    actorId: Long? = null,
+    nameOf: (Long) -> String? = { null },
+): String? {
+    control.shortMessage?.takeIf { it.isNotBlank() }?.let { return it }
+    control.message?.takeIf { it.isNotBlank() }?.let { return it }
+    val actor = actorId?.takeIf { it != 0L }
+    val mine = actor != null && actor == selfId
+    fun name(id: Long): String? = runCatching { nameOf(id) }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+    val actorName = actor?.let(::name)
+    // Subject phrase: «Вы» + plural verb, a name + neutral verb, or null when unknown.
+    fun subj(verbPast: String, verbYou: String): String? = when {
+        mine -> "Вы $verbYou"
+        actorName != null -> "$actorName $verbPast"
+        else -> null
+    }
+    val title = control.title?.trim()?.takeIf { it.isNotEmpty() }
+    val targets = control.userIds.filter { it != 0L }.ifEmpty { listOfNotNull(control.userId?.takeIf { it != 0L }) }
+    val event = control.event?.lowercase()
+    return when (event) {
+        ControlEvents.NEW -> {
+            val channel = control.chatType.equals("CHANNEL", ignoreCase = true)
+            if (control.chatType.equals("DIALOG", ignoreCase = true) && actorName != null && !mine) return "$actorName теперь в MAX"
+            val what = if (channel) "канал" else "чат"
+            val obj = title?.let { "$what «$it»" } ?: what
+            subj("создал(а)", "создали")?.let { "$it $obj" }
+                ?: title?.let { if (channel) "Создан канал «$it»" else "Создан чат «$it»" }
+                ?: if (channel) "Канал создан" else "Чат создан"
+        }
+        ControlEvents.ADD.lowercase(), ControlEvents.REMOVE.lowercase() -> {
+            val add = event == ControlEvents.ADD
+            if (actor != null && targets == listOf(actor)) {
+                return if (add) subj("вступил(а) в чат", "вступили в чат") ?: "Участник вступил(а) в чат"
+                else subj("покинул(а) чат", "покинули чат") ?: "Участник покинул(а) чат"
+            }
+            val s = if (add) subj("добавил(а)", "добавили") else subj("удалил(а)", "удалили")
+            if (s == null) {
+                if (add) "Добавлены участники" else "Удалены участники"
+            } else {
+                "$s ${membersPhrase(targets, selfId, ::name)}"
+            }
+        }
+        ControlEvents.LEAVE -> subj("покинул(а) чат", "покинули чат") ?: "Участник покинул(а) чат"
+        ControlEvents.TITLE -> {
+            val s = subj("изменил(а) название", "изменили название")
+            when {
+                s != null -> title?.let { "$s на «$it»" } ?: "$s чата"
+                title != null -> "Название чата изменено на «$title»"
+                else -> "Название чата изменено"
+            }
+        }
+        ControlEvents.ICON -> subj("изменил(а) фото чата", "изменили фото чата") ?: "Фото чата изменено"
+        ControlEvents.JOIN_BY_LINK.lowercase() ->
+            subj("вступил(а) в чат по ссылке", "вступили в чат по ссылке") ?: "Участник вступил(а) в чат по ссылке"
+        ControlEvents.HELLO -> {
+            val who = control.userId?.takeIf { it != 0L } ?: actor
+            when {
+                who != null && who == selfId -> "Вы теперь в MAX"
+                else -> who?.let(::name)?.let { "$it теперь в MAX" } ?: "Контакт теперь в MAX"
+            }
+        }
+        ControlEvents.BOT_STARTED.lowercase() -> if (mine) "Вы запустили бота" else "Бот запущен"
+        else -> null
+    }
+}
+
+/** «вас», «Борис», «Борис и Вера», «Борис, Вера и Глеб», «Борис и ещё 2», «участника», «2 участника». */
+private fun membersPhrase(ids: List<Long>, selfId: Long?, name: (Long) -> String?): String {
+    val known = ArrayList<String>()
+    var unknown = 0
+    for (id in ids) {
+        val n = if (id == selfId) "вас" else name(id)
+        if (n != null) known += n else unknown++
+    }
+    return when {
+        known.isEmpty() -> if (unknown <= 1) "участника" else "$unknown ${participantsWord(unknown)}"
+        unknown > 0 -> "${known.joinToString(", ")} и ещё $unknown"
+        known.size == 1 -> known[0]
+        else -> known.dropLast(1).joinToString(", ") + " и " + known.last()
+    }
+}
+
+private fun participantsWord(n: Int): String {
+    val m100 = n % 100
+    val m10 = n % 10
+    return if (m10 in 1..4 && m100 !in 11..14) "участника" else "участников"
 }
