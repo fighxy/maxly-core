@@ -277,16 +277,9 @@ class ControlAttachmentTest {
         Fixture("fallbacks/photo-and-control", 101L, "Анна", "", listOf(mapOf("_type" to "PHOTO", "photoId" to 5L, "baseUrl" to "https://i.example/5"), mapOf("_type" to "CONTROL", "event" to "icon")), 1L, emptyMap(), null, "Анна изменил(а) фото чата"),
     )
 
-    /**
-     * The `CONTROL` attachment as the client finds it: `_type` or `type`, any case. The core reads
-     * only `_type: "CONTROL"`, so the client (ServiceMessages.control) brings other spellings to it.
-     */
-    private fun controlOf(attaches: List<Any?>): Attachment.Control? {
-        val map = attaches.firstOrNull { ((it as? Map<*, *>)?.let { m -> m["_type"] ?: m["type"] } as? String)?.uppercase() == "CONTROL" } as? Map<*, *>
-            ?: return null
-        val wire = if (map["_type"] == "CONTROL") map else map.filterKeys { it != "type" && it != "_type" } + ("_type" to "CONTROL")
-        return Attachment.from(wire) as? Attachment.Control
-    }
+    /** The first `CONTROL` attachment, parsed by the core as is (`_type` or `type`, any case). */
+    private fun controlOf(attaches: List<Any?>): Attachment.Control? =
+        attaches.map(Attachment::from).firstNotNullOfOrNull { it as? Attachment.Control }
 
     /**
      * Plays a case as the clients do: account [Fixture.viewer], actor [Fixture.sender], names from
@@ -319,6 +312,36 @@ class ControlAttachmentTest {
         assertEquals("Создан чат «Дача»", core(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "CHAT", "title" to "Дача"), 101L))
         assertEquals("Бот запущен", core(mapOf("_type" to "CONTROL", "event" to "botStarted"), 101L))
         assertEquals("Бот запущен", core(mapOf("_type" to "CONTROL", "event" to "botStarted"), 0L))
-        assertNull(Attachment.from(mapOf("type" to "control", "event" to "leave")) as? Attachment.Control)
+        assertEquals("Контакт теперь в MAX", core(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "DIALOG"), 101L))
+        assertEquals("Контакт теперь в MAX", core(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "dialog", "title" to "Анна"), 0L))
+        assertEquals("Вы теперь в MAX", core(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "DIALOG"), 1L))
+        assertEquals("Вы теперь в MAX", controlFallbackText(ctl("new", chatType = "DIALOG"), 1L, 1L) { "Иван" })
+        assertEquals("Анна теперь в MAX", text(ctl("new", chatType = "DIALOG"), 101L))
+        assertEquals("Сервер", controlFallbackText(ctl("new", chatType = "DIALOG").copy(shortMessage = "Сервер"), 1L, 101L))
+    }
+
+    @Test
+    fun controlTypeSpellings() {
+        for (raw in listOf(
+            mapOf("_type" to "CONTROL", "event" to "leave"),
+            mapOf("_type" to "control", "event" to "leave"),
+            mapOf("type" to "control", "event" to "leave"),
+            mapOf("type" to "CONTROL", "event" to "leave"),
+            mapOf("type" to "Control", "event" to "leave"),
+        )) {
+            val c = assertIs<Attachment.Control>(Attachment.from(raw), raw.toString())
+            assertEquals("leave", c.event)
+            assertEquals(raw, c.raw)
+        }
+        assertTrue(MaxMessage.from(mapOf("id" to 1L, "time" to 1L, "type" to "USER", "attaches" to listOf(mapOf("type" to "control", "event" to "leave"))))!!.isService)
+        // An entry with `_type` keeps it, whatever its `type` says; other types stay case-sensitive.
+        assertIs<Attachment.Photo>(Attachment.from(mapOf("_type" to "PHOTO", "photoId" to 5L, "type" to "control")))
+        assertIs<Attachment.Unknown>(Attachment.from(mapOf("_type" to "SHARE", "type" to "control")))
+        assertIs<Attachment.Unknown>(Attachment.from(mapOf("_type" to 3, "type" to "control")))
+        assertIs<Attachment.Unknown>(Attachment.from(mapOf("type" to "photo", "photoId" to 5L)))
+        assertIs<Attachment.Unknown>(Attachment.from(mapOf("_type" to "photo", "photoId" to 5L)))
+        assertIs<Attachment.Unknown>(Attachment.from(mapOf("type" to "controls")))
+        assertIs<Attachment.Unknown>(Attachment.from(mapOf("type" to 1)))
+        assertFalse(MaxMessage.from(mapOf("id" to 1L, "time" to 1L, "type" to "USER", "attaches" to listOf(mapOf("_type" to "SHARE", "type" to "control"))))!!.isService)
     }
 }

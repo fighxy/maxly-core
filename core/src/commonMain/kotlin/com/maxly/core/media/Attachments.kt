@@ -224,11 +224,22 @@ sealed interface Attachment {
     data class Unknown(val type: String?, override val raw: Map<*, *>) : Attachment
 
     companion object {
+        /**
+         * `true` for a `CONTROL` entry: `_type` `CONTROL` in any case, or, with no `_type`, `type`
+         * `control` in any case (some payloads spell it so). Other `_type`s are case-sensitive, and
+         * an entry with a `_type` is never reclassified by its `type`.
+         */
+        internal fun isControlType(m: Map<*, *>): Boolean {
+            val t = m["_type"]
+            return if (t != null) (t as? String).equals("CONTROL", ignoreCase = true)
+            else (m["type"] as? String).equals("control", ignoreCase = true)
+        }
+
         fun from(value: Any?): Attachment {
             val m = value as? Map<*, *> ?: return Unknown(null, emptyMap<Any?, Any?>())
             val type = m["_type"] as? String
             fun int(key: String) = m[key].asLong()?.toInt()
-            return when (type) {
+            return when (if (isControlType(m)) "CONTROL" else type) {
                 "PHOTO" -> m["photoId"].asLong()?.let { Photo(it, m["photoToken"] as? String, m["baseUrl"] as? String, int("width"), int("height"), m) }
                 "VIDEO" -> m["videoId"].asLong()?.let {
                     Video(it, m["token"] as? String, int("width"), int("height"), m["duration"].asLong(), int("videoType"), m["thumbnail"] as? String, m)
@@ -353,7 +364,13 @@ fun controlFallbackText(
     return when (event) {
         ControlEvents.NEW -> {
             val channel = control.chatType.equals("CHANNEL", ignoreCase = true)
-            if (control.chatType.equals("DIALOG", ignoreCase = true) && actorName != null && !mine) return "$actorName теперь в MAX"
+            if (control.chatType.equals("DIALOG", ignoreCase = true)) {
+                return when {
+                    mine -> "Вы теперь в MAX"
+                    actorName != null -> "$actorName теперь в MAX"
+                    else -> "Контакт теперь в MAX"
+                }
+            }
             val what = if (channel) "канал" else "чат"
             val obj = title?.let { "$what «$it»" } ?: what
             subj("создал(а)", "создали")?.let { "$it $obj" }
