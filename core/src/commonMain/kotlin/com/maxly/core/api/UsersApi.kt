@@ -9,8 +9,8 @@ import com.maxly.core.protocol.Opcode
  * results in `com.maxly.core.state.MaxStore.putUsers`).
  *
  * Contact search by name has no payload in the references and is not exposed; of the contact
- * list opcodes (35-40) `CONTACT_PRESENCE` 35 ([getPresence]) and the black list page of
- * `CONTACT_LIST` 36 are. `CONTACT_UPDATE` 34 covers add, rename (`UPDATE`), remove, block and
+ * list opcodes (35-40) `CONTACT_PRESENCE` 35 ([getPresence]), the black list page of
+ * `CONTACT_LIST` 36 and the photo pages of `CONTACT_PHOTOS` 39 ([contactPhotos]) are. `CONTACT_UPDATE` 34 covers add, rename (`UPDATE`), remove, block and
  * unblock.
  */
 class UsersApi(private val sink: RequestSink) {
@@ -149,6 +149,20 @@ class UsersApi(private val sink: RequestSink) {
         return list.mapNotNull { MaxUser.from(it) }
     }
 
+    /**
+     * A page of [contactId]'s profile photos (`CONTACT_PHOTOS` 39, `{contactId, count, from?}` →
+     * `{ids, urls, total}`, as the Android app pages it: `count` 50, `from` left out on the first
+     * page). [from] is the number of photos already loaded. `urls[i]` is the photo of `ids[i]`;
+     * when the two lists differ in length the URLs come without ids ([ContactPhoto.photoId]
+     * `null`), as the app reads them. [ContactPhotos.total] is the server's count of all photos.
+     */
+    suspend fun contactPhotos(contactId: Long, from: Int = 0, count: Int = CONTACT_PHOTOS_PAGE): ContactPhotos {
+        require(from >= 0 && count > 0) { "bad page: from=$from count=$count" }
+        val payload = linkedMapOf<String, Any?>("contactId" to contactId, "count" to count)
+        if (from > 0) payload["from"] = from
+        return ContactPhotos.from(replyMap(sink.request(Opcode.CONTACT_PHOTOS, payload), Opcode.CONTACT_PHOTOS))
+    }
+
     /** Active sessions of the account (`SESSIONS_INFO` 96, `{}`); reply `sessions`. */
     suspend fun getSessions(): List<SessionInfo> {
         val map = replyMap(sink.request(Opcode.SESSIONS_INFO, emptyMap<String, Any?>()), Opcode.SESSIONS_INFO)
@@ -184,6 +198,9 @@ class UsersApi(private val sink: RequestSink) {
         /** Longest first or last name of a contact the server accepts (MAX web client form). */
         const val CONTACT_NAME_MAX = 64
 
+        /** Page size of [contactPhotos], the Android app's `count`. */
+        const val CONTACT_PHOTOS_PAGE = 50
+
         /** Most ids per `CONTACT_PRESENCE` 35 request ([getPresence]; KometTeam/Komet `PresenceFetch`). */
         const val PRESENCE_BATCH = 100
 
@@ -201,6 +218,32 @@ data class PhoneContact(val phone: String, val firstName: String, val lastName: 
     /** `firstName lastName`, trimmed; `null` when both are blank. */
     val fullName: String?
         get() = listOfNotNull(firstName.trim(), lastName?.trim()).filter { it.isNotEmpty() }.joinToString(" ").takeIf { it.isNotEmpty() }
+}
+
+/**
+ * One photo of a [ContactPhotos] page: [url] as the server sent it (the app shows it as is) and
+ * its [photoId], `null` when the reply's `ids` did not line up with `urls`.
+ */
+data class ContactPhoto(val photoId: Long?, val url: String)
+
+/** Reply of [UsersApi.contactPhotos]: the page's [photos] and the server's [total] (0 when absent). */
+data class ContactPhotos(val photos: List<ContactPhoto>, val total: Int, val raw: Map<*, *>) {
+    companion object {
+        /** Parses a `CONTACT_PHOTOS` 39 reply; missing lists give an empty page. */
+        fun from(map: Map<*, *>): ContactPhotos {
+            val urls = map["urls"]?.let {
+                it as? List<*> ?: throw MalformedReplyException(Opcode.CONTACT_PHOTOS, "urls is not a list", map)
+            }.orEmpty().map {
+                it as? String ?: throw MalformedReplyException(Opcode.CONTACT_PHOTOS, "url is not a string", map)
+            }
+            val ids = (map["ids"] as? List<*>).orEmpty().map { it.asLong() }
+            val paired = ids.size == urls.size && ids.none { it == null }
+            val photos = urls.mapIndexedNotNull { i, url ->
+                url.takeIf { it.isNotBlank() }?.let { ContactPhoto(if (paired) ids[i] else null, it) }
+            }
+            return ContactPhotos(photos, map["total"].asLong()?.toInt() ?: 0, map)
+        }
+    }
 }
 
 /** Reply of [UsersApi.addContactByPhone]: the contact and whether it was [isNew] to the list. */

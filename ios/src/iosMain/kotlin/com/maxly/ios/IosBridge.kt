@@ -10,6 +10,7 @@ import com.maxly.core.api.Transcription
 import com.maxly.core.api.Chat
 import com.maxly.core.api.ChatMemberEntry
 import com.maxly.core.api.ContactNames
+import com.maxly.core.api.ContactPhotos
 import com.maxly.core.api.PhoneContact
 import com.maxly.core.api.PinAction
 import com.maxly.core.api.DelayedUpdate
@@ -1292,6 +1293,14 @@ class MaxIosClient internal constructor(
         }
     }
 
+    /**
+     * A page of [userId]'s profile photos (`CONTACT_PHOTOS` 39, pages of 50). [from] is the number
+     * already loaded (0 for the first page); a page shorter than 50 or `from >= total` is the end.
+     */
+    fun loadContactPhotos(userId: String, from: Int, onResult: (IosContactPhotos?, String?, String?) -> Unit) {
+        perform(onResult, { null }) { c -> contactPhotosSnapshot(c.api.users.contactPhotos(parseId(userId), from.coerceAtLeast(0))) }
+    }
+
     /** Unblocks [userId] (`CONTACT_UPDATE` 34 `UNBLOCK`). */
     fun unblockUser(userId: String, onResult: (String?, String?) -> Unit) {
         runUnit(onResult) { it.api.users.setBlocked(parseId(userId), false) }
@@ -2501,6 +2510,8 @@ class MaxIosClient internal constructor(
         ).apply {
             this.presence = PresenceStatus.of(seen)
             this.mentionName = card.mentionName.orEmpty()
+            this.avatarViewerUrls = user.avatarViewerUrls
+            this.photoId = user.photoId?.toString().orEmpty()
         }
     }
 
@@ -2965,6 +2976,17 @@ class IosChat(
     var lastControl: IosControl? = null
         internal set
 
+    /**
+     * Picture for a full-screen viewer and for saving, best first ([com.maxly.core.api.Chat.iconViewerUrls],
+     * for a dialog the peer's [com.maxly.core.api.MaxUser.avatarViewerUrls]): server sizes, try the
+     * next one when a load fails. Empty without a picture. [avatarUrl] stays the list thumbnail.
+     */
+    var avatarViewerUrls: List<String> = emptyList()
+        internal set
+
+    /** The first of [avatarViewerUrls], empty without a picture. */
+    val avatarFullUrl: String get() = avatarViewerUrls.firstOrNull().orEmpty()
+
     /** The initializer without [hasWebApp] (`false`), kept so existing Swift and Kotlin callers stay unchanged. */
     constructor(
         id: String,
@@ -3029,6 +3051,21 @@ class IosProfile(
      */
     var mentionName: String = ""
         internal set
+
+    /**
+     * The picture for a full-screen viewer and for saving, best first (server sizes of the
+     * uncropped `baseRawUrl` / `baseRawIconUrl`, then of [avatarUrl]); try the next one when a load
+     * fails. Empty without a picture. Older photos of a user: [MaxIosClient.loadContactPhotos].
+     */
+    var avatarViewerUrls: List<String> = emptyList()
+        internal set
+
+    /** The first of [avatarViewerUrls], empty without a picture. */
+    val avatarFullUrl: String get() = avatarViewerUrls.firstOrNull().orEmpty()
+
+    /** The user's current avatar `photoId` as a decimal string, empty for chats or without one. */
+    var photoId: String = ""
+        internal set
 }
 
 /** [MaxIosClient.loadChatList]: the chats and whether they are the account's whole list. */
@@ -3071,6 +3108,21 @@ class IosContact(
      * recently, `3` long ago); [online] is `presence == 1`, the TTL applied.
      */
     var presence: Int = -1
+        internal set
+
+    /**
+     * The avatar for a full-screen viewer and for saving, best first ([MaxUser.avatarViewerUrls]:
+     * server sizes of the uncropped `baseRawUrl`, then of [avatarUrl]); try the next one when a
+     * load fails. Empty without an avatar. Older photos: [MaxIosClient.loadContactPhotos].
+     */
+    var avatarViewerUrls: List<String> = emptyList()
+        internal set
+
+    /** The first of [avatarViewerUrls], empty without an avatar. */
+    val avatarFullUrl: String get() = avatarViewerUrls.firstOrNull().orEmpty()
+
+    /** The current avatar's `photoId` as a decimal string, empty without one. */
+    var photoId: String = ""
         internal set
 
     /**
@@ -3682,7 +3734,19 @@ object IosImageSize {
 
     /** True when `expires` is present and `nowMillis` is at or past it. */
     fun expired(url: String, nowMillis: Long): Boolean = ImageSizes.isExpired(url, nowMillis)
+
+    /** Full-screen / save candidates of an avatar, best first ([ImageSizes.viewerUrls]); blank URLs are skipped. */
+    fun viewerUrls(rawUrl: String, baseUrl: String): List<String> = ImageSizes.viewerUrls(rawUrl, baseUrl)
 }
+
+/** One profile photo of [MaxIosClient.loadContactPhotos]: [url] as sent; [photoId] empty when unknown. */
+class IosContactPhoto(val photoId: String, val url: String)
+
+/** A page of [MaxIosClient.loadContactPhotos]; [total] is the server's count of all photos (0 when not sent). */
+class IosContactPhotos(val photos: List<IosContactPhoto>, val total: Int)
+
+internal fun contactPhotosSnapshot(page: ContactPhotos): IosContactPhotos =
+    IosContactPhotos(page.photos.map { IosContactPhoto(it.photoId?.toString().orEmpty(), it.url) }, page.total)
 
 class IosImageFn(val fn: String, val pixels: Int)
 
@@ -4061,7 +4125,7 @@ internal fun configEvents(prev: AccountConfig?, next: AccountConfig?, nowMs: Lon
     return if (bulk) chats + iosEvent(kind = "config") else chats
 }
 
-private fun chatSnapshot(chat: Chat, state: MaxState, config: AccountConfig? = null): IosChat {
+internal fun chatSnapshot(chat: Chat, state: MaxState, config: AccountConfig? = null): IosChat {
     val last = chat.lastMessage
     val updated = when {
         chat.lastEventTime > 0 -> chat.lastEventTime
@@ -4104,7 +4168,10 @@ private fun chatSnapshot(chat: Chat, state: MaxState, config: AccountConfig? = n
         active = if (isActive(chat)) 1 else 0,
         lastTimeMs = last?.time ?: 0L,
         hasWebApp = state.chatHasWebApp(chat),
-    ).apply { lastControl = controlOf(last, state) }
+    ).apply {
+        lastControl = controlOf(last, state)
+        avatarViewerUrls = chat.iconViewerUrls.ifEmpty { peer?.avatarViewerUrls.orEmpty() }
+    }
 }
 
 /**
@@ -4215,7 +4282,7 @@ private fun dialogPeer(chat: Chat, me: Long?): Long? {
     return ids.firstOrNull { it != me }
 }
 
-private fun chatProfile(chat: Chat): IosProfile {
+internal fun chatProfile(chat: Chat): IosProfile {
     val options = chat.raw["options"] as? Map<*, *>
     return IosProfile(
         kind = if (chat.type == "CHANNEL") "channel" else "group",
@@ -4232,7 +4299,10 @@ private fun chatProfile(chat: Chat): IosProfile {
             false -> 0
             else -> -1
         },
-    ).apply { mentionName = chat.mentionName.orEmpty() }
+    ).apply {
+        mentionName = chat.mentionName.orEmpty()
+        avatarViewerUrls = chat.iconViewerUrls
+    }
 }
 
 /** Contact list for the UI: a deleted account (`accountStatus != 0`) stays out, as in Komet. */
@@ -4247,7 +4317,7 @@ private fun listedContacts(state: MaxState, ttlMs: Long = MaxState.DEFAULT_PRESE
  * Name for the list, as Komet stores it: the `CUSTOM` entry, else `ONEME`, else the first.
  * `firstName` and `lastName` win. A blank pair falls back to `name`.
  */
-private fun contactSnapshot(user: MaxUser, state: MaxState, ttlMs: Long = MaxState.DEFAULT_PRESENCE_TTL_MS): IosContact {
+internal fun contactSnapshot(user: MaxUser, state: MaxState, ttlMs: Long = MaxState.DEFAULT_PRESENCE_TTL_MS): IosContact {
     val names = user.names
     val chosen = names.firstOrNull { it.type == "CUSTOM" }
         ?: names.firstOrNull { it.type == "ONEME" }
@@ -4281,6 +4351,8 @@ private fun contactSnapshot(user: MaxUser, state: MaxState, ttlMs: Long = MaxSta
         displayName = nameOf(user, state).orEmpty()
         this.presence = PresenceStatus.of(seen)
         this.mentionName = user.mentionName.orEmpty()
+        this.avatarViewerUrls = user.avatarViewerUrls
+        this.photoId = user.photoId?.toString().orEmpty()
     }
 }
 
