@@ -204,6 +204,29 @@ data class Chat(
      */
     val mentionName: String? get() = MentionNames.ofChat(raw["link"] as? String)
 
+    /**
+     * The chat's picture as sent (`baseIconUrl`), `null` when blank or absent. A dialog has none:
+     * use the peer's [MaxUser.baseUrl] / [MaxUser.baseRawUrl].
+     */
+    val baseIconUrl: String? get() = (raw["baseIconUrl"] as? String)?.takeIf { it.isNotBlank() }
+
+    /**
+     * The uncropped original of the picture (`baseRawIconUrl`, parsed by the Android app next to
+     * `baseIconUrl`), `null` when blank or absent. Sized with `&fn=` like any image
+     * ([com.maxly.core.media.ImageSizes]).
+     */
+    val baseRawIconUrl: String? get() = (raw["baseRawIconUrl"] as? String)?.takeIf { it.isNotBlank() }
+
+    /**
+     * Candidates for opening the picture full screen or saving it, best first
+     * ([com.maxly.core.media.ImageSizes.viewerUrls] of [baseRawIconUrl] and [baseIconUrl]); empty
+     * without a picture.
+     */
+    val iconViewerUrls: List<String> get() = com.maxly.core.media.ImageSizes.viewerUrls(baseRawIconUrl, baseIconUrl)
+
+    /** The first of [iconViewerUrls], `null` without a picture. */
+    val iconFullUrl: String? get() = iconViewerUrls.firstOrNull()
+
     companion object {
         fun from(value: Any?): Chat? {
             val m = value as? Map<*, *> ?: return null
@@ -293,6 +316,23 @@ data class MaxUser(
     val raw: Map<*, *>,
 ) {
     val mentionName: String? get() = MentionNames.ofUser(link)
+
+    /**
+     * The uncropped original of the avatar (`baseRawUrl`, which the Android app parses next to
+     * `baseUrl` and `photoId`), `null` when blank or absent. Sized with `&fn=` like [baseUrl]
+     * ([com.maxly.core.media.ImageSizes]).
+     */
+    val baseRawUrl: String? get() = (raw["baseRawUrl"] as? String)?.takeIf { it.isNotBlank() }
+
+    /**
+     * Candidates for opening the avatar full screen or saving it, best first
+     * ([com.maxly.core.media.ImageSizes.viewerUrls] of [baseRawUrl] and [baseUrl]); empty without
+     * an avatar. Older photos: [UsersApi.contactPhotos].
+     */
+    val avatarViewerUrls: List<String> get() = com.maxly.core.media.ImageSizes.viewerUrls(baseRawUrl, baseUrl)
+
+    /** The first of [avatarViewerUrls], `null` without an avatar. */
+    val avatarFullUrl: String? get() = avatarViewerUrls.firstOrNull()
 
     val displayName: String?
         get() = names.firstOrNull()?.let { n ->

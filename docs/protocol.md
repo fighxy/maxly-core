@@ -412,7 +412,7 @@ PyMax: `check_password(track_id, password)` → `AUTH_LOGIN_CHECK_PASSWORD` (115
 | 36 | `CONTACT_LIST` | `CONTACT_LIST` |  |
 | 37 | `CONTACT_SEARCH` | `CONTACT_SEARCH` |  |
 | 38 | `CONTACT_MUTUAL` | `CONTACT_MUTUAL` |  |
-| 39 | `CONTACT_PHOTOS` | `CONTACT_PHOTOS` |  |
+| 39 | `CONTACT_PHOTOS` | `CONTACT_PHOTOS` | `UsersApi.contactPhotos` (§G.3) |
 | 40 | `CONTACT_SORT` | `CONTACT_SORT` |  |
 | 41 | — | — | `CONTACT_ADD_BY_PHONE` (имя по Komet): `{phone, firstName?, lastName?}` → `{contact, new}` (opcodes.md, «Контакты») |
 | 42 | `CONTACT_VERIFY` | `CONTACT_VERIFY` |  |
@@ -876,6 +876,10 @@ User-Agent: `OKMessages/{appVersion} ({osVersion}; {deviceName}; {screen})` (`co
 **Протухание.** Приложение обновляет ссылку, только если серверный флаг `photo-url-refresh` включён (по умолчанию выключен) и в query есть `expires` (миллисекунды с эпохи) не позже текущего времени. Нет `expires` или он не число — ссылка не протухла. Ядро само картинки не грузит и само не обновляет: `ImageSizes.isExpired` и вызов 203 — дело клиента.
 
 **Opcode 203** `PHOTO_URL_REFRESH`. Запрос `{media: [{chatId, messageId, photoIds}]}` — по одному элементу на сообщение, `photoIds` — id фото этого сообщения. Ответ `{media: [вложения]}`; приложение разбирает их тем же парсером, что фото в сообщении, и оставляет только фото (`photoId`, `baseUrl`, `mp4Url`, `photoToken`, `width`, `height`, `previewUrl`, `gif`). Список режется по `photo-url-refresh-max-media-per-request` (по умолчанию 100) — это число сообщений в одном запросе, не число id. `postId` приложение в запрос не кладёт (веб-клиент иногда кладёт). Ядро: `MediaApi.refreshPhotoUrls` / `MaxClient.refreshPhotoUrls`; флаг и размер пачки — `AccountConfig.photoUrlRefresh` и `photoUrlRefreshMaxMedia`.
+
+**Аватары в полный размер.** У контакта, кроме `baseUrl` и `photoId`, приложение разбирает `baseRawUrl` — неотрезанный оригинал аватара; у чата рядом с `baseIconUrl` — `baseRawIconUrl`. Оба размеряются тем же `&fn=`. Для просмотра аватара во весь экран приложение собирает список ссылок от большего класса к меньшему: на каждом классе `baseRawUrl` по ширине (`w_N`), `baseRawUrl` квадратом (`sqr_N`), затем то же для `baseUrl`; URL без `fn` в этом списке нет. Ядро: `MaxUser.baseRawUrl`, `avatarViewerUrls`, `avatarFullUrl`; `Chat.baseIconUrl`, `baseRawIconUrl`, `iconViewerUrls`, `iconFullUrl`; `ImageSizes.viewerUrls(raw, base)`. У диалога своей картинки нет — берётся аватар собеседника. Запрос 203 адресует фото сообщением (`chatId`, `messageId`), для аватара в нём места нет; как приложение обновляет протухшую ссылку аватара, не разбиралось (очевидный путь — перечитать контакт `CONTACT_INFO` 32 или чат).
+
+**Opcode 39** `CONTACT_PHOTOS` — история аватаров контакта. Запрос `{contactId, count, from}`: приложение шлёт `count` 50, а `from` (сколько уже загружено) только когда он не 0. Ответ `{ids, urls, total}`: `ids` — id фото, `urls` — ссылки (строки), `total` — сколько фото всего. `urls[i]` относится к `ids[i]`; если длины списков разные, приложение берёт ссылки без id. Ссылки приложение показывает как пришли. Ядро: `UsersApi.contactPhotos(contactId, from, count)` → `ContactPhotos(photos: List<ContactPhoto(photoId, url)>, total)`.
 
 ### G.4 Закреплённые сообщения (240–243)
 

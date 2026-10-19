@@ -119,6 +119,32 @@ object ImageSizes {
         return nowMillis >= expires
     }
 
+    /**
+     * Sized URLs for a full-screen avatar viewer and for saving the picture, best first, as the
+     * Android app lists them for its avatar viewer: for each class from max down to tiny
+     * ([WIDTH_MAX] / [SQUARE_MAX] ... [WIDTH_TINY] / [SQUARE_TINY]) the uncropped [rawUrl] by width,
+     * then [rawUrl] square, then [baseUrl] by width, then [baseUrl] square. A blank or `null` URL
+     * is skipped, repeats are dropped; both missing gives an empty list. Try them in order and
+     * fall back to the next one when a load fails. Nothing is upscaled: these are server sizes.
+     */
+    fun viewerUrls(rawUrl: String?, baseUrl: String?): List<String> {
+        val raw = rawUrl?.takeIf { it.isNotBlank() }
+        val base = baseUrl?.takeIf { it.isNotBlank() }
+        if (raw == null && base == null) return emptyList()
+        val out = LinkedHashSet<String>()
+        for (i in VIEWER_WIDTH.indices) {
+            for (url in listOfNotNull(raw, base)) {
+                out += url(url, VIEWER_WIDTH[i])
+                out += url(url, VIEWER_SQUARE[i])
+            }
+        }
+        return out.toList()
+    }
+
+    /** The app's five classes (`fy0`), largest first. */
+    private val VIEWER_WIDTH = listOf(WIDTH_MAX, WIDTH_LARGE, WIDTH_MEDIUM, WIDTH_SMALL, WIDTH_TINY)
+    private val VIEWER_SQUARE = listOf(SQUARE_MAX, SQUARE_LARGE, SQUARE_MEDIUM, SQUARE_SMALL, SQUARE_TINY)
+
     private fun ladder(shape: ImageShape): List<ImageFn> = when (shape) {
         ImageShape.SQUARE -> SQUARE
         ImageShape.WIDTH -> WIDTH
