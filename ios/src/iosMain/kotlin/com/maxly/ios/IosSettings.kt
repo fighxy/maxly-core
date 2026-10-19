@@ -18,7 +18,9 @@ import platform.posix.memcpy
 /**
  * The own profile for the settings screen. [phone] is digits without `+` (empty when unknown),
  * [link] the profile link as a full URL (`invite-link` of the config, else the own contact's
- * link; empty when neither is known), [photoId] empty without an avatar.
+ * link; empty when neither is known), [photoId] empty without an avatar. [avatarUrl] stays the
+ * thumbnail as sent; [avatarFullUrl] and [avatarViewerUrls] are the full-size sources, as on
+ * [IosProfile] and [IosContact].
  */
 class IosMyProfile(
     val id: String,
@@ -29,7 +31,22 @@ class IosMyProfile(
     val avatarUrl: String,
     val photoId: String,
     val link: String,
-)
+) {
+    /**
+     * Sized fallbacks for a full-screen viewer and for saving, best first ([MaxUser.avatarViewerUrls]:
+     * server sizes of the uncropped `baseRawUrl`, then of [avatarUrl]); try the next one when a
+     * load fails. Empty without an avatar.
+     */
+    var avatarViewerUrls: List<String> = emptyList()
+        internal set
+
+    /**
+     * The original avatar for opening and saving ([MaxUser.avatarFullUrl]: `baseRawUrl`, else
+     * [avatarUrl], with `fn` removed); empty without one. Fall back to [avatarViewerUrls].
+     */
+    var avatarFullUrl: String = ""
+        internal set
+}
 
 /**
  * User settings of `config.user` and settings-screen values of `config.server`. [known] is `false`
@@ -125,7 +142,10 @@ internal fun myProfileSnapshot(user: MaxUser, config: AccountConfig?): IosMyProf
         avatarUrl = user.baseUrl.orEmpty(),
         photoId = user.photoId?.takeIf { it > 0 }?.toString().orEmpty(),
         link = (config?.inviteLink ?: AccountConfig.normalizeLink(user.link)).orEmpty(),
-    )
+    ).apply {
+        avatarViewerUrls = user.avatarViewerUrls
+        avatarFullUrl = user.avatarFullUrl.orEmpty()
+    }
 }
 
 internal fun settingsSnapshot(config: AccountConfig?): IosAccountSettings {

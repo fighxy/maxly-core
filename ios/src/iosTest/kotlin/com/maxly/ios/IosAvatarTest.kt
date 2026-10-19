@@ -7,7 +7,7 @@ import com.maxly.core.state.MaxState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** Full-size avatars in the bridge: chats, dialogs, profiles, contacts and `CONTACT_PHOTOS` pages. */
+/** Full-size avatars in the bridge: chats, dialogs, profiles, contacts, the own profile and `CONTACT_PHOTOS` pages. */
 class IosAvatarTest {
     private val peer = MaxUser.from(mapOf("id" to 2L, "baseUrl" to "https://i/u", "baseRawUrl" to "https://i/ur", "photoId" to 77L))!!
 
@@ -52,5 +52,27 @@ class IosAvatarTest {
         assertEquals("9", page.photos.single().photoId)
         assertEquals("https://i/9", page.photos.single().url)
         assertEquals("", contactPhotosSnapshot(ContactPhotos.from(mapOf("urls" to listOf("https://i/x")))).photos.single().photoId)
+    }
+
+    @Test
+    fun myProfileCarriesFullUrlViewerUrlsAndPhotoId() {
+        val me = MaxUser.from(mapOf("id" to 1L, "baseUrl" to "https://i/m?fn=sqr_64", "baseRawUrl" to "https://i/mr?a=1&fn=sqr_288", "photoId" to 55L))!!
+        val p = myProfileSnapshot(me, null)
+        assertEquals("https://i/m?fn=sqr_64", p.avatarUrl)
+        assertEquals("https://i/mr?a=1", p.avatarFullUrl)
+        assertEquals(me.avatarFullUrl, p.avatarFullUrl)
+        assertEquals(me.avatarViewerUrls, p.avatarViewerUrls)
+        assertEquals(contactSnapshot(me, MaxState(me = 1L, users = mapOf(1L to me))).avatarViewerUrls, p.avatarViewerUrls)
+        assertEquals("https://i/mr?a=1&fn=w_1440", p.avatarViewerUrls.first())
+        assertEquals("55", p.photoId)
+    }
+
+    @Test
+    fun myProfileWithoutAvatarIsEmpty() {
+        val p = myProfileSnapshot(MaxUser.from(mapOf("id" to 1L))!!, null)
+        assertEquals("", p.avatarUrl)
+        assertEquals("", p.avatarFullUrl)
+        assertEquals(emptyList(), p.avatarViewerUrls)
+        assertEquals("", p.photoId)
     }
 }
