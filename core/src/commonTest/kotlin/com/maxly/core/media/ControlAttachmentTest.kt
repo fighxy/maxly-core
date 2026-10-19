@@ -138,9 +138,59 @@ class ControlAttachmentTest {
         check(ctl("joinByLink"), "Анна вступил(а) в чат по ссылке", "Вы вступили в чат по ссылке", "Участник вступил(а) в чат по ссылке")
         check(ctl("hello"), "Анна теперь в MAX", "Вы теперь в MAX", "Контакт теперь в MAX")
         check(ctl("botStarted"), "Бот запущен", "Вы запустили бота", "Бот запущен")
-        assertNull(text(ctl("pin"), 101L))
+        assertEquals("Сообщение закреплено", text(ctl("pin"), 101L))
+        assertEquals("Закрепление снято", text(ctl("unpin"), 1L))
         assertNull(text(ctl("system"), 101L))
         assertEquals("Сбор в 10", text(ctl("pin").copy(shortMessage = "Сбор в 10"), 101L))
+    }
+
+    @Test
+    fun pinnedMessage() {
+        val c = assertIs<Attachment.Control>(Attachment.from(mapOf("_type" to "CONTROL", "event" to "pin", "pinnedMessage" to mapOf("id" to "77", "text" to "Сбор в 10"))))
+        assertEquals(77L, c.pinnedMessageId)
+        assertEquals("Сбор в 10", c.pinnedText)
+        assertEquals("Закреплено: Сбор в 10", controlFallbackText(c))
+        assertEquals("Закреплено: Сбор в 10", controlFallbackText(c, selfId = 1L, actorId = 1L))
+        assertEquals("Сервер", controlFallbackText(c.copy(shortMessage = "Сервер")))
+        assertEquals("Сервер", controlFallbackText(c.copy(message = "Сервер")))
+        assertEquals("Закреплено: Сбор в 10", controlFallbackText(c.copy(event = "PIN", shortMessage = " ")))
+
+        val idOnly = assertIs<Attachment.Control>(Attachment.from(mapOf("_type" to "CONTROL", "event" to "pin", "pinnedMessage" to mapOf("id" to 78L, "text" to 5))))
+        assertEquals(78L, idOnly.pinnedMessageId)
+        assertNull(idOnly.pinnedText)
+        assertEquals("Сообщение закреплено", controlFallbackText(idOnly))
+        assertEquals("Закреплено: из базы", controlFallbackText(idOnly, pinnedText = " из базы "))
+        assertEquals("Закреплено: своё", controlFallbackText(c.copy(pinnedText = "своё"), pinnedText = "из базы"))
+        assertEquals("Закреплено: из базы", controlFallbackText(c.copy(pinnedText = "  "), pinnedText = "из базы"))
+        assertEquals("Сообщение закреплено", controlFallbackText(c.copy(pinnedText = "\n \n")))
+
+        val bare = assertIs<Attachment.Control>(Attachment.from(mapOf("_type" to "CONTROL", "event" to "pin")))
+        assertNull(bare.pinnedMessageId)
+        assertEquals("Сообщение закреплено", controlFallbackText(bare))
+        val bad = assertIs<Attachment.Control>(Attachment.from(mapOf("_type" to "CONTROL", "event" to "pin", "pinnedMessage" to "77")))
+        assertNull(bad.pinnedMessageId)
+        assertNull(bad.pinnedText)
+
+        val unpin = assertIs<Attachment.Control>(Attachment.from(mapOf("_type" to "CONTROL", "event" to "unpin")))
+        assertEquals(ControlEvents.UNPIN, unpin.event)
+        assertEquals("Закрепление снято", controlFallbackText(unpin, 1L, 1L))
+        assertEquals("Снято", controlFallbackText(unpin.copy(shortMessage = "Снято")))
+    }
+
+    @Test
+    fun pinPreviewShortens() {
+        assertNull(pinPreview(null))
+        assertNull(pinPreview(" \n\t"))
+        assertEquals("Первая", pinPreview("\n  Первая  \nвторая"))
+        val exact = "а".repeat(PIN_PREVIEW_MAX)
+        assertEquals(exact, pinPreview(exact))
+        val long = pinPreview("б".repeat(80))!!
+        assertEquals(PIN_PREVIEW_MAX, long.length)
+        assertEquals("б".repeat(PIN_PREVIEW_MAX - 1) + "…", long)
+        assertEquals("слово…", pinPreview("слово" + " ".repeat(60) + "x"))
+        val emoji = pinPreview("x".repeat(PIN_PREVIEW_MAX - 2) + "😀😀")!!
+        assertEquals("x".repeat(PIN_PREVIEW_MAX - 2) + "…", emoji)
+        assertEquals("Закреплено: " + "в".repeat(PIN_PREVIEW_MAX - 1) + "…", controlFallbackText(ctl("pin").copy(pinnedText = "в".repeat(200))))
     }
 
     @Test
@@ -180,8 +230,8 @@ class ControlAttachmentTest {
         Case("events/icon", mapOf("event" to "icon", "url" to "https://i.example/chat.jpg", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна изменил(а) фото чата"),
         Case("events/bot-started", mapOf("event" to "botStarted", "startPayload" to "ref42", "_type" to "CONTROL"), 1L, 1L, mapOf(1L to "Иван"), "Вы запустили бота"),
         Case("events/system", mapOf("event" to "system", "shortMessage" to "Номер телефона подтверждён", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Номер телефона подтверждён"),
-        Case("events/pin-is-not-an-event", mapOf("event" to "pin", "pinnedMessage" to mapOf("id" to 77L, "text" to "Сбор в 10"), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), null),
-        Case("events/unpin-is-not-an-event", mapOf("event" to "unpin", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), null),
+        Case("events/pin-is-not-an-event", mapOf("event" to "pin", "pinnedMessage" to mapOf("id" to 77L, "text" to "Сбор в 10"), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Закреплено: Сбор в 10"),
+        Case("events/unpin-is-not-an-event", mapOf("event" to "unpin", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Закрепление снято"),
         Case("events/new-chat-core-text", mapOf("event" to "new", "chatType" to "CHAT", "title" to "Дача", "_type" to "CONTROL"), 101L, 1L, emptyMap(), "Создан чат «Дача»"),
         Case("events/bot-started-core-text", mapOf("event" to "botStarted", "_type" to "CONTROL"), 0L, 1L, emptyMap(), "Бот запущен"),
         Case("events/add-server-core-text", mapOf("event" to "add", "userIds" to listOf(102L), "shortMessage" to "Сервер: участник добавлен", "_type" to "CONTROL"), 101L, 1L, emptyMap(), "Сервер: участник добавлен"),

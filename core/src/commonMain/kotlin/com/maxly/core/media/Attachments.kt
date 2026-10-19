@@ -214,6 +214,10 @@ sealed interface Attachment {
         val showHistory: Boolean? = null,
         /** Deep-link payload of [ControlEvents.BOT_STARTED] (`startPayload`). */
         val startPayload: String? = null,
+        /** Id of the pinned message (`pinnedMessage.id`, [ControlEvents.PIN]); clients open it on tap. */
+        val pinnedMessageId: Long? = null,
+        /** Text of the pinned message as sent (`pinnedMessage.text`, [ControlEvents.PIN]). */
+        val pinnedText: String? = null,
     ) : Attachment
 
     /** Any other `_type` (CONTACT, CALL, SHARE, INLINE_KEYBOARD, ...) or a malformed entry. */
@@ -259,6 +263,8 @@ sealed interface Attachment {
                     m["photoToken"] as? String,
                     m["showHistory"] as? Boolean,
                     m["startPayload"] as? String,
+                    (m["pinnedMessage"] as? Map<*, *>)?.get("id").asLong(),
+                    (m["pinnedMessage"] as? Map<*, *>)?.get("text") as? String,
                 )
                 else -> null
             } ?: Unknown(type, m)
@@ -301,8 +307,11 @@ object ControlEvents {
     /** The sender joined by an invite link. */
     const val JOIN_BY_LINK: String = "joinByLink"
 
-    /** Message pinned; clients show it in the pinned bar. */
+    /** Message pinned (`pinnedMessage: {id, text}`); clients show it in the pinned bar. */
     const val PIN: String = "pin"
+
+    /** Pinned message unpinned (no `pinnedMessage`). */
+    const val UNPIN: String = "unpin"
 
     /** Bot chat started ([com.maxly.core.api.MessagesApi.sendBotStart], `startPayload`). */
     const val BOT_STARTED: String = "botStarted"
@@ -312,14 +321,18 @@ object ControlEvents {
  * A neutral Russian line for a service message. The server's [Attachment.Control.shortMessage],
  * else [Attachment.Control.message] (blank ones skipped) comes first; otherwise a known event gets
  * its own text, «Вы» forms when [actorId] (the message sender) is [selfId], names from [nameOf]
- * («Участник» / impersonal forms when unknown). [ControlEvents.SYSTEM], [ControlEvents.PIN] and
- * unknown events without server text give `null` (clients then show «Служебное сообщение»).
+ * («Участник» / impersonal forms when unknown). [ControlEvents.PIN] gives «Закреплено: <text>»
+ * from [Attachment.Control.pinnedText], else [pinnedText] (e.g. the local copy of the message
+ * [Attachment.Control.pinnedMessageId]), shortened by [pinPreview]; «Сообщение закреплено» without
+ * text. [ControlEvents.UNPIN] gives «Закрепление снято». No author in either. [ControlEvents.SYSTEM]
+ * and unknown events without server text give `null` (clients then show «Служебное сообщение»).
  * Pure; never throws.
  */
 fun controlFallbackText(
     control: Attachment.Control,
     selfId: Long? = null,
     actorId: Long? = null,
+    pinnedText: String? = null,
     nameOf: (Long) -> String? = { null },
 ): String? {
     control.shortMessage?.takeIf { it.isNotBlank() }?.let { return it }
@@ -380,8 +393,25 @@ fun controlFallbackText(
             }
         }
         ControlEvents.BOT_STARTED.lowercase() -> if (mine) "Вы запустили бота" else "Бот запущен"
+        ControlEvents.PIN -> (pinPreview(control.pinnedText) ?: pinPreview(pinnedText))?.let { "Закреплено: $it" } ?: "Сообщение закреплено"
+        ControlEvents.UNPIN -> "Закрепление снято"
         else -> null
     }
+}
+
+/** Longest [pinPreview] in characters, the «…» included. */
+const val PIN_PREVIEW_MAX: Int = 50
+
+/**
+ * A one-line preview of a pinned message: the first non-blank line of [text], trimmed, cut to
+ * [PIN_PREVIEW_MAX] characters with «…» (never inside a surrogate pair). `null` for blank text.
+ */
+fun pinPreview(text: String?): String? {
+    val line = text?.lineSequence()?.map { it.trim() }?.firstOrNull { it.isNotEmpty() } ?: return null
+    if (line.length <= PIN_PREVIEW_MAX) return line
+    var end = PIN_PREVIEW_MAX - 1
+    if (line[end - 1].isHighSurrogate()) end--
+    return line.substring(0, end).trimEnd() + "…"
 }
 
 /** «вас», «Борис», «Борис и Вера», «Борис, Вера и Глеб», «Борис и ещё 2», «участника», «2 участника». */

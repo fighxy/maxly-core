@@ -3187,7 +3187,9 @@ class IosMessage(
  * [fallbackText] is the server's [shortMessage] / [message], else a neutral Russian description
  * of a known event («Вы» forms for the account, names from the store), `null` otherwise (show
  * «Служебное сообщение»). [message] and
- * [shortMessage] are the server's raw texts, if sent.
+ * [shortMessage] are the server's raw texts, if sent. For `pin`, [pinnedMessageId] is the pinned
+ * message to open on tap and [pinnedText] its text as sent (`pinnedMessage`); [fallbackText] is
+ * «Закреплено: …» / «Сообщение закреплено», for `unpin` «Закрепление снято».
  */
 class IosControl(
     val event: String,
@@ -3196,21 +3198,31 @@ class IosControl(
     val fallbackText: String?,
     val message: String?,
     val shortMessage: String?,
+    val pinnedMessageId: String? = null,
+    val pinnedText: String? = null,
 )
 
-internal fun Attachment.Control.toIos(): IosControl =
-    IosControl(event.orEmpty(), userIds.map { it.toString() }, title, com.maxly.core.media.controlFallbackText(this), message, shortMessage)
+internal fun Attachment.Control.toIos(): IosControl = IosControl(
+    event.orEmpty(), userIds.map { it.toString() }, title, com.maxly.core.media.controlFallbackText(this), message, shortMessage,
+    pinnedMessageId?.toString(), pinnedText,
+)
 
 /** [toIos] with «Вы» forms for the account ([MaxState.me]) and names of [actorId] (the sender) and members from [state]. */
-internal fun Attachment.Control.toIos(actorId: Long?, state: MaxState): IosControl = IosControl(
+internal fun Attachment.Control.toIos(actorId: Long?, state: MaxState, chatId: Long? = null): IosControl = IosControl(
     event.orEmpty(), userIds.map { it.toString() }, title,
-    com.maxly.core.media.controlFallbackText(this, state.me, actorId) { id -> state.displayName(id) },
-    message, shortMessage,
+    com.maxly.core.media.controlFallbackText(this, state.me, actorId, localPinnedText(state, chatId)) { id -> state.displayName(id) },
+    message, shortMessage, pinnedMessageId?.toString(), pinnedText,
 )
+
+/** Text of the pinned message in chat [chatId] of [state] when the `pin` attachment has its id but no text. */
+private fun Attachment.Control.localPinnedText(state: MaxState, chatId: Long?): String? {
+    val id = pinnedMessageId?.takeIf { pinnedText.isNullOrBlank() } ?: return null
+    return state.messages[chatId ?: return null]?.firstOrNull { it.id == id }?.text
+}
 
 /** First `CONTROL` attachment of [message] for Swift, `null` for a regular message. */
 internal fun controlOf(message: MaxMessage?, state: MaxState): IosControl? =
-    message?.attachments?.firstNotNullOfOrNull { it as? Attachment.Control }?.toIos(message.sender, state)
+    message?.attachments?.firstNotNullOfOrNull { it as? Attachment.Control }?.toIos(message.sender, state, message.chatId)
 
 /** Reactions of one message ([MaxIosClient.loadReactions]); [json] as [IosMessage.reactionsJson]. */
 class IosReactions(val messageId: String, val json: String)
