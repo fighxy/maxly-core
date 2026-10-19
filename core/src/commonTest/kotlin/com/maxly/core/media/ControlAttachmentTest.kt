@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -204,63 +205,120 @@ class ControlAttachmentTest {
         assertEquals("Анна добавил(а) 12 участников", text(ctl("add", (1000L..1011L).toList()), 101L))
     }
 
-    private class Case(val name: String, val raw: Map<String, Any?>, val sender: Long, val viewer: Long, val names: Map<Long, String>, val expect: String?)
-
-    /** Shared fixtures fighxy/Maxly test-fixtures/service-messages (events.json, fallbacks.json). `*-core-text` cases carry no names (and no sender for botStarted), as their coreText predates names. */
-    private val fixtures = listOf(
-        Case("events/hello", mapOf("event" to "hello", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна теперь в MAX"),
-        Case("events/hello-user-id", mapOf("event" to "hello", "userId" to 303L, "_type" to "CONTROL"), 101L, 1L, mapOf(202L to "Борис", 303L to "Вера"), "Вера теперь в MAX"),
-        Case("events/new-dialog", mapOf("event" to "new", "chatType" to "DIALOG", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна теперь в MAX"),
-        Case("events/new-chat", mapOf("event" to "new", "chatType" to "CHAT", "title" to "Дача", "userIds" to listOf(202L, 303L), "_type" to "CONTROL"), 101L, 1L, mapOf(202L to "Борис", 303L to "Вера", 101L to "Анна"), "Анна создал(а) чат «Дача»"),
-        Case("events/new-chat-mine", mapOf("event" to "new", "chatType" to "CHAT", "title" to "Дача", "userIds" to listOf(202L), "_type" to "CONTROL"), 1L, 1L, mapOf(202L to "Борис", 303L to "Вера", 1L to "Иван"), "Вы создали чат «Дача»"),
-        Case("events/new-chat-untitled", mapOf("event" to "new", "chatType" to "CHAT", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна создал(а) чат"),
-        Case("events/new-channel", mapOf("event" to "new", "chatType" to "CHANNEL", "title" to "Новости", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна создал(а) канал «Новости»"),
-        Case("events/add-two", mapOf("event" to "add", "userIds" to listOf(202L, 303L), "showHistory" to true, "_type" to "CONTROL"), 101L, 1L, mapOf(202L to "Борис", 303L to "Вера", 101L to "Анна"), "Анна добавил(а) Борис и Вера"),
-        Case("events/add-viewer", mapOf("event" to "add", "userIds" to listOf(1L), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна добавил(а) вас"),
-        Case("events/add-self", mapOf("event" to "add", "userIds" to listOf(101L), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна вступил(а) в чат"),
-        Case("events/add-mine", mapOf("event" to "add", "userIds" to listOf(202L), "_type" to "CONTROL"), 1L, 1L, mapOf(202L to "Борис", 303L to "Вера", 1L to "Иван"), "Вы добавили Борис"),
-        Case("events/remove", mapOf("event" to "remove", "userIds" to listOf(202L), "_type" to "CONTROL"), 101L, 1L, mapOf(202L to "Борис", 303L to "Вера", 101L to "Анна"), "Анна удалил(а) Борис"),
-        Case("events/remove-self", mapOf("event" to "remove", "userIds" to listOf(101L), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна покинул(а) чат"),
-        Case("events/remove-viewer", mapOf("event" to "remove", "userId" to 1L, "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна удалил(а) вас"),
-        Case("events/leave", mapOf("event" to "leave", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна покинул(а) чат"),
-        Case("events/leave-mine", mapOf("event" to "leave", "_type" to "CONTROL"), 1L, 1L, mapOf(1L to "Иван"), "Вы покинули чат"),
-        Case("events/join-by-link", mapOf("event" to "joinByLink", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна вступил(а) в чат по ссылке"),
-        Case("events/title", mapOf("event" to "title", "title" to "Дача 2027", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна изменил(а) название на «Дача 2027»"),
-        Case("events/title-mine", mapOf("event" to "title", "title" to "Дача 2027", "_type" to "CONTROL"), 1L, 1L, mapOf(1L to "Иван"), "Вы изменили название на «Дача 2027»"),
-        Case("events/icon", mapOf("event" to "icon", "url" to "https://i.example/chat.jpg", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна изменил(а) фото чата"),
-        Case("events/bot-started", mapOf("event" to "botStarted", "startPayload" to "ref42", "_type" to "CONTROL"), 1L, 1L, mapOf(1L to "Иван"), "Вы запустили бота"),
-        Case("events/system", mapOf("event" to "system", "shortMessage" to "Номер телефона подтверждён", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Номер телефона подтверждён"),
-        Case("events/pin-is-not-an-event", mapOf("event" to "pin", "pinnedMessage" to mapOf("id" to 77L, "text" to "Сбор в 10"), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Закреплено: Сбор в 10"),
-        Case("events/unpin-is-not-an-event", mapOf("event" to "unpin", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Закрепление снято"),
-        Case("events/new-chat-core-text", mapOf("event" to "new", "chatType" to "CHAT", "title" to "Дача", "_type" to "CONTROL"), 101L, 1L, emptyMap(), "Создан чат «Дача»"),
-        Case("events/bot-started-core-text", mapOf("event" to "botStarted", "_type" to "CONTROL"), 0L, 1L, emptyMap(), "Бот запущен"),
-        Case("events/add-server-core-text", mapOf("event" to "add", "userIds" to listOf(102L), "shortMessage" to "Сервер: участник добавлен", "_type" to "CONTROL"), 101L, 1L, emptyMap(), "Сервер: участник добавлен"),
-        Case("events/hello-server-core-text", mapOf("event" to "hello", "shortMessage" to "Сервер: контакт в сети", "_type" to "CONTROL"), 101L, 1L, emptyMap(), "Сервер: контакт в сети"),
-        Case("events/unknown-server-core-text", mapOf("event" to "futureEvent", "message" to "Сервер: новое событие", "_type" to "CONTROL"), 101L, 1L, emptyMap(), "Сервер: новое событие"),
-        Case("fallbacks/unknown-event", mapOf("event" to "present", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), null),
-        Case("fallbacks/unknown-event-with-text", mapOf("event" to "widget", "message" to "Новый виджет", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Новый виджет"),
-        Case("fallbacks/no-event", mapOf("_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), null),
-        Case("fallbacks/system-without-text", mapOf("event" to "system", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), null),
-        Case("fallbacks/hello-without-name", mapOf("event" to "hello", "_type" to "CONTROL"), 101L, 1L, emptyMap(), "Контакт теперь в MAX"),
-        Case("fallbacks/leave-without-name", mapOf("event" to "leave", "_type" to "CONTROL"), 101L, 1L, emptyMap(), "Участник покинул(а) чат"),
-        Case("fallbacks/add-unknown-names", mapOf("event" to "add", "userIds" to listOf(404L, 405L), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна добавил(а) 2 участника"),
-        Case("fallbacks/add-five-unknown", mapOf("event" to "add", "userIds" to listOf(401L, 402L, 403L, 404L, 405L), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна добавил(а) 5 участников"),
-        Case("fallbacks/add-one-unknown", mapOf("event" to "add", "userIds" to listOf(404L), "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна добавил(а) участника"),
-        Case("fallbacks/add-known-and-unknown", mapOf("event" to "add", "userIds" to listOf(202L, 404L, 405L), "_type" to "CONTROL"), 101L, 1L, mapOf(202L to "Борис", 303L to "Вера", 101L to "Анна"), "Анна добавил(а) Борис и ещё 2"),
-        Case("fallbacks/add-three-known", mapOf("event" to "add", "userIds" to listOf("202", "303", "505"), "_type" to "CONTROL"), 101L, 1L, mapOf(202L to "Борис", 303L to "Вера", 505L to "Глеб", 101L to "Анна"), "Анна добавил(а) Борис, Вера и Глеб"),
-        Case("fallbacks/remove-without-users", mapOf("event" to "remove", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна удалил(а) участника"),
-        Case("fallbacks/title-without-title", mapOf("event" to "title", "title" to "  ", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна изменил(а) название чата"),
-        Case("fallbacks/event-case", mapOf("event" to "JOINBYLINK", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна вступил(а) в чат по ссылке"),
-        Case("fallbacks/type-key", mapOf("event" to "leave", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна покинул(а) чат"),
-        Case("fallbacks/zero-user-id", mapOf("event" to "hello", "userId" to 0L, "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна теперь в MAX"),
-        Case("fallbacks/photo-and-control", mapOf("event" to "icon", "_type" to "CONTROL"), 101L, 1L, mapOf(101L to "Анна"), "Анна изменил(а) фото чата"),
+    /**
+     * One case of the shared fixtures, verbatim: [sender] / [senderName] / [text] / [attaches] of
+     * the server message, [viewer] the account, [names] the names the client knows, [coreText] the
+     * expected [controlFallbackText] (if given) and [expect] the line the client shows.
+     */
+    private class Fixture(
+        val name: String,
+        val sender: Long,
+        val senderName: String,
+        val text: String,
+        val attaches: List<Any?>,
+        val viewer: Long,
+        val names: Map<Long, String>,
+        val coreText: String?,
+        val expect: String,
     )
+
+    /**
+     * fighxy/Maxly test-fixtures/service-messages at 33964e8 (events.json, fallbacks.json), all
+     * cases, generated from the JSON; keep it in sync with the files, never edit a case by hand.
+     */
+    private val fixtures = listOf(
+        Fixture("events/hello", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "hello")), 1L, emptyMap(), null, "Анна теперь в MAX"),
+        Fixture("events/hello-user-id", 101L, "", "", listOf(mapOf("_type" to "CONTROL", "event" to "hello", "userId" to 303L)), 1L, mapOf(202L to "Борис", 303L to "Вера"), null, "Вера теперь в MAX"),
+        Fixture("events/new-dialog", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "DIALOG")), 1L, emptyMap(), null, "Анна теперь в MAX"),
+        Fixture("events/new-chat", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "CHAT", "title" to "Дача", "userIds" to listOf(202L, 303L))), 1L, mapOf(202L to "Борис", 303L to "Вера"), null, "Анна создал(а) чат «Дача»"),
+        Fixture("events/new-chat-mine", 1L, "Иван", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "CHAT", "title" to "Дача", "userIds" to listOf(202L))), 1L, mapOf(202L to "Борис", 303L to "Вера"), null, "Вы создали чат «Дача»"),
+        Fixture("events/new-chat-untitled", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "CHAT")), 1L, emptyMap(), null, "Анна создал(а) чат"),
+        Fixture("events/new-channel", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "CHANNEL", "title" to "Новости")), 1L, emptyMap(), null, "Анна создал(а) канал «Новости»"),
+        Fixture("events/add-two", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(202L, 303L), "showHistory" to true)), 1L, mapOf(202L to "Борис", 303L to "Вера"), null, "Анна добавил(а) Борис и Вера"),
+        Fixture("events/add-viewer", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(1L))), 1L, emptyMap(), null, "Анна добавил(а) вас"),
+        Fixture("events/add-self", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(101L))), 1L, emptyMap(), null, "Анна вступил(а) в чат"),
+        Fixture("events/add-mine", 1L, "Иван", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(202L))), 1L, mapOf(202L to "Борис", 303L to "Вера"), null, "Вы добавили Борис"),
+        Fixture("events/remove", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "remove", "userIds" to listOf(202L))), 1L, mapOf(202L to "Борис", 303L to "Вера"), null, "Анна удалил(а) Борис"),
+        Fixture("events/remove-self", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "remove", "userIds" to listOf(101L))), 1L, emptyMap(), null, "Анна покинул(а) чат"),
+        Fixture("events/remove-viewer", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "remove", "userId" to 1L)), 1L, emptyMap(), null, "Анна удалил(а) вас"),
+        Fixture("events/leave", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "leave")), 1L, emptyMap(), null, "Анна покинул(а) чат"),
+        Fixture("events/leave-mine", 1L, "Иван", "", listOf(mapOf("_type" to "CONTROL", "event" to "leave")), 1L, emptyMap(), null, "Вы покинули чат"),
+        Fixture("events/join-by-link", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "joinByLink")), 1L, emptyMap(), null, "Анна вступил(а) в чат по ссылке"),
+        Fixture("events/title", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "title", "title" to "Дача 2027")), 1L, emptyMap(), null, "Анна изменил(а) название на «Дача 2027»"),
+        Fixture("events/title-mine", 1L, "Иван", "", listOf(mapOf("_type" to "CONTROL", "event" to "title", "title" to "Дача 2027")), 1L, emptyMap(), null, "Вы изменили название на «Дача 2027»"),
+        Fixture("events/icon", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "icon", "url" to "https://i.example/chat.jpg")), 1L, emptyMap(), null, "Анна изменил(а) фото чата"),
+        Fixture("events/bot-started", 1L, "Иван", "", listOf(mapOf("_type" to "CONTROL", "event" to "botStarted", "startPayload" to "ref42")), 1L, emptyMap(), null, "Вы запустили бота"),
+        Fixture("events/system", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "system", "shortMessage" to "Номер телефона подтверждён")), 1L, emptyMap(), null, "Номер телефона подтверждён"),
+        Fixture("events/pin-is-not-an-event", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "pin", "pinnedMessage" to mapOf("id" to 77L, "text" to "Сбор в 10"))), 1L, emptyMap(), "Закреплено: Сбор в 10", "Закреплено: Сбор в 10"),
+        Fixture("events/unpin-is-not-an-event", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "unpin")), 1L, emptyMap(), "Закрепление снято", "Закрепление снято"),
+        Fixture("events/new-chat-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "CHAT", "title" to "Дача")), 1L, emptyMap(), "Анна создал(а) чат «Дача»", "Анна создал(а) чат «Дача»"),
+        Fixture("events/bot-started-core-text", 1L, "Иван", "", listOf(mapOf("_type" to "CONTROL", "event" to "botStarted")), 1L, emptyMap(), "Вы запустили бота", "Вы запустили бота"),
+        Fixture("events/new-dialog-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "DIALOG")), 1L, emptyMap(), "Анна теперь в MAX", "Анна теперь в MAX"),
+        Fixture("events/add-server-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(102L), "shortMessage" to "Сервер: участник добавлен")), 1L, emptyMap(), "Сервер: участник добавлен", "Сервер: участник добавлен"),
+        Fixture("events/hello-server-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "hello", "shortMessage" to "Сервер: контакт в сети")), 1L, emptyMap(), "Сервер: контакт в сети", "Сервер: контакт в сети"),
+        Fixture("events/unknown-server-core-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "futureEvent", "message" to "Сервер: новое событие")), 1L, emptyMap(), "Сервер: новое событие", "Сервер: новое событие"),
+        Fixture("fallbacks/unknown-event", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "present")), 1L, emptyMap(), null, "Служебное сообщение"),
+        Fixture("fallbacks/unknown-event-with-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "widget", "message" to "Новый виджет")), 1L, emptyMap(), null, "Новый виджет"),
+        Fixture("fallbacks/no-event", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL")), 1L, emptyMap(), null, "Служебное сообщение"),
+        Fixture("fallbacks/system-without-text", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "system")), 1L, emptyMap(), null, "Служебное сообщение"),
+        Fixture("fallbacks/system-message-text", 101L, "Анна", "Вход с нового устройства", listOf(mapOf("_type" to "CONTROL", "event" to "system")), 1L, emptyMap(), null, "Вход с нового устройства"),
+        Fixture("fallbacks/hello-without-name", 101L, "", "", listOf(mapOf("_type" to "CONTROL", "event" to "hello")), 1L, emptyMap(), null, "Контакт теперь в MAX"),
+        Fixture("fallbacks/leave-without-name", 101L, "", "", listOf(mapOf("_type" to "CONTROL", "event" to "leave")), 1L, emptyMap(), null, "Участник покинул(а) чат"),
+        Fixture("fallbacks/add-unknown-names", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(404L, 405L))), 1L, emptyMap(), null, "Анна добавил(а) 2 участника"),
+        Fixture("fallbacks/add-five-unknown", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(401L, 402L, 403L, 404L, 405L))), 1L, emptyMap(), null, "Анна добавил(а) 5 участников"),
+        Fixture("fallbacks/add-one-unknown", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(404L))), 1L, emptyMap(), null, "Анна добавил(а) участника"),
+        Fixture("fallbacks/add-known-and-unknown", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf(202L, 404L, 405L))), 1L, mapOf(202L to "Борис", 303L to "Вера"), null, "Анна добавил(а) Борис и ещё 2"),
+        Fixture("fallbacks/add-three-known", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "add", "userIds" to listOf("202", "303", "505"))), 1L, mapOf(202L to "Борис", 303L to "Вера", 505L to "Глеб"), null, "Анна добавил(а) Борис, Вера и Глеб"),
+        Fixture("fallbacks/remove-without-users", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "remove")), 1L, emptyMap(), null, "Анна удалил(а) участника"),
+        Fixture("fallbacks/title-without-title", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "title", "title" to "  ")), 1L, emptyMap(), null, "Анна изменил(а) название чата"),
+        Fixture("fallbacks/event-case", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "JOINBYLINK")), 1L, emptyMap(), null, "Анна вступил(а) в чат по ссылке"),
+        Fixture("fallbacks/type-key", 101L, "Анна", "", listOf(mapOf("type" to "control", "event" to "leave")), 1L, emptyMap(), null, "Анна покинул(а) чат"),
+        Fixture("fallbacks/zero-user-id", 101L, "Анна", "", listOf(mapOf("_type" to "CONTROL", "event" to "hello", "userId" to 0L)), 1L, emptyMap(), null, "Анна теперь в MAX"),
+        Fixture("fallbacks/photo-and-control", 101L, "Анна", "", listOf(mapOf("_type" to "PHOTO", "photoId" to 5L, "baseUrl" to "https://i.example/5"), mapOf("_type" to "CONTROL", "event" to "icon")), 1L, emptyMap(), null, "Анна изменил(а) фото чата"),
+    )
+
+    /**
+     * The `CONTROL` attachment as the client finds it: `_type` or `type`, any case. The core reads
+     * only `_type: "CONTROL"`, so the client (ServiceMessages.control) brings other spellings to it.
+     */
+    private fun controlOf(attaches: List<Any?>): Attachment.Control? {
+        val map = attaches.firstOrNull { ((it as? Map<*, *>)?.let { m -> m["_type"] ?: m["type"] } as? String)?.uppercase() == "CONTROL" } as? Map<*, *>
+            ?: return null
+        val wire = if (map["_type"] == "CONTROL") map else map.filterKeys { it != "type" && it != "_type" } + ("_type" to "CONTROL")
+        return Attachment.from(wire) as? Attachment.Control
+    }
+
+    /**
+     * Plays a case as the clients do: account [Fixture.viewer], actor [Fixture.sender], names from
+     * [Fixture.names] plus the sender's [Fixture.senderName] (blank ones unknown). The line is the
+     * core's text, else the message text, else «Служебное сообщение» (README rule 5).
+     */
+    private fun play(c: Fixture): Pair<String?, String> {
+        val control = assertNotNull(controlOf(c.attaches), c.name)
+        val known = c.names + (c.sender to c.senderName)
+        val core = controlFallbackText(control, c.viewer, c.sender) { id -> known[id]?.takeIf { it.isNotBlank() } }
+        val line = core?.trim()?.takeIf { it.isNotEmpty() } ?: c.text.trim().takeIf { it.isNotEmpty() } ?: "Служебное сообщение"
+        return core to line
+    }
 
     @Test
     fun sharedFixtures() {
+        assertEquals(48, fixtures.size)
+        assertEquals(fixtures.size, fixtures.map { it.name }.toSet().size)
         for (c in fixtures) {
-            val control = assertIs<Attachment.Control>(Attachment.from(c.raw), c.name)
-            assertEquals(c.expect, controlFallbackText(control, c.viewer, c.sender) { c.names[it] }, c.name)
+            val (core, line) = play(c)
+            c.coreText?.let { assertEquals(it, core, "${c.name}: coreText") }
+            assertEquals(c.expect, line, "${c.name}: text")
         }
+    }
+
+    /** Variants of shared cases without the context the fixtures now give (no names, not own). */
+    @Test
+    fun namelessVariants() {
+        fun core(raw: Map<String, Any?>, sender: Long) = controlFallbackText(assertNotNull(controlOf(listOf(raw))), 1L, sender)
+        assertEquals("Создан чат «Дача»", core(mapOf("_type" to "CONTROL", "event" to "new", "chatType" to "CHAT", "title" to "Дача"), 101L))
+        assertEquals("Бот запущен", core(mapOf("_type" to "CONTROL", "event" to "botStarted"), 101L))
+        assertEquals("Бот запущен", core(mapOf("_type" to "CONTROL", "event" to "botStarted"), 0L))
+        assertNull(Attachment.from(mapOf("type" to "control", "event" to "leave")) as? Attachment.Control)
     }
 }
