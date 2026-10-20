@@ -7,6 +7,9 @@ import com.maxly.core.protocol.Opcode
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import com.maxly.core.toMaxError
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -72,7 +75,9 @@ class CommentsPollsTest {
         val api = messages(sink)
         val s = api.votePoll(100, 5, 3, listOf(1, 2))
         assertEquals(3, s.total)
-        assertEquals(PollResult(1, 2, listOf(PollVote(5, 9)), 66, 0), s.results.single())
+        // the reply marks no answer as the user's: the sent answers are merged in
+        assertEquals(listOf(PollResult(1, 2, listOf(PollVote(5, 9)), 66, 1), PollResult(2, 0, emptyList(), 0, 1)), s.results)
+        assertEquals(listOf(1L, 2L), s.myAnswerIds)
         assertEquals(listOf(5L), s.voterPreviewIds)
         assertEquals(Opcode.SEND_VOTE, sink.opcodes[0])
         assertEquals(pymax["vote"], sink.hex(0))
@@ -89,6 +94,38 @@ class CommentsPollsTest {
         assertEquals(listOf(PollAnswer("A", 1)), p.answers)
         assertEquals(3, p.state?.total)
         assertEquals(PollFlag.of(PollFlag.mask(PollFlag.entries.toSet())), PollFlag.entries.toSet())
+    }
+
+    @Test
+    fun ownVoteComesFromResultOptionsBit() {
+        val state = PollState.from(mapOf("total" to 3, "result" to listOf(
+            mapOf("answerId" to 1L, "voteCount" to 2, "rate" to 66, "options" to 1),
+            mapOf("answerId" to 2L, "voteCount" to 1, "rate" to 33, "options" to 0),
+            mapOf("answerId" to 3L, "voteCount" to 0, "rate" to 0, "options" to 2),
+        )))!!
+        assertEquals(listOf(true, false, false), state.results.map { it.isMine })
+        assertEquals(listOf(1L), state.myAnswerIds)
+        assertTrue(state.hasMyVote)
+        // a reply that already marks the user's answer is kept as is
+        assertEquals(state, state.withMyVote(listOf(2L)))
+        val none = PollState.from(mapOf("total" to 0))!!
+        assertEquals(emptyList(), none.myAnswerIds)
+        assertFalse(none.hasMyVote)
+    }
+
+    @Test
+    fun alreadyVotedIsDistinguishable() {
+        val packet = com.maxly.core.transport.TransportPacket(
+            com.maxly.core.protocol.PacketHeader(11, 3, 1, 304.toShort(), 0, compressed = false),
+            mapOf("error" to "poll.already.voted", "message" to "Vote failed"),
+        )
+        val e = com.maxly.core.transport.ServerErrorException.from(packet)
+        assertTrue(e.isPollAlreadyVoted)
+        assertEquals("poll.already.voted", e.errorKey)
+        val err = e.toMaxError()
+        assertEquals(com.maxly.core.ErrorKind.SERVER, err.kind)
+        assertTrue(err.isPollAlreadyVoted)
+        assertEquals("poll.already.voted", err.errorKey)
     }
 
     @Test

@@ -1166,7 +1166,11 @@ class MaxClient @Throws(Exception::class) constructor(
     suspend fun pollUpdates(chatId: Long, polls: List<PollRef>): List<Attachment.Poll> =
         api.messages.pollUpdates(chatId, polls)
 
-    /** Votes (`SEND_VOTE` 304). Reply is the new [PollState]. Not stored. */
+    /**
+     * Votes (`SEND_VOTE` 304). Reply is the new [PollState]; [PollState.myAnswerIds] includes the sent
+     * answers. Not stored. A repeated vote fails with `poll.already.voted`
+     * (`ServerErrorException.isPollAlreadyVoted`, `MaxError.isPollAlreadyVoted`); the session stays up.
+     */
     @Throws(CancellationException::class, Exception::class)
     suspend fun votePoll(chatId: Long, messageId: Long, pollId: Long, answerIds: List<Long>): PollState =
         api.messages.votePoll(chatId, messageId, pollId, answerIds)

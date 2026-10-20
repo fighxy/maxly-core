@@ -3848,7 +3848,8 @@ private fun MaxMessage.toScheduled(chatId: String, fallbackSendAt: Long): IosSch
 /** A poll to refresh. Ids are decimal strings. */
 class IosPollRef(val messageId: String, val pollId: String)
 
-class IosPollAnswer(val answerId: String, val text: String, val votes: Int)
+/** [mine]: the current user voted for this answer (result `options` bit 1). */
+class IosPollAnswer(val answerId: String, val text: String, val votes: Int, val mine: Boolean = false)
 
 /**
  * A poll from `GET_POLL_UPDATES` 306. [version] is `-1` when the server omitted it.
@@ -3864,18 +3865,33 @@ class IosPoll(
     val revote: Boolean,
     val closed: Boolean,
     val answers: List<IosPollAnswer>,
-)
+    /** Answer ids (decimal strings) the current user voted for; empty when not voted. */
+    val myAnswerIds: List<String> = emptyList(),
+) {
+    /** The current user has voted in this poll. */
+    val voted: Boolean get() = myAnswerIds.isNotEmpty()
+}
 
 /** Counts from `SEND_VOTE` 304 (`state`). Answers without a numeric id are left out. */
-class IosPollState(val total: Int, val answers: List<IosPollAnswer>)
+class IosPollState(
+    val total: Int,
+    val answers: List<IosPollAnswer>,
+    /** Answer ids (decimal strings) the current user voted for. */
+    val myAnswerIds: List<String> = emptyList(),
+) {
+    /** The current user has voted in this poll. */
+    val voted: Boolean get() = myAnswerIds.isNotEmpty()
+}
 
 private fun PollState.toIos(): IosPollState = IosPollState(
     total = total,
-    answers = results.map { IosPollAnswer(it.answerId.toString(), "", it.voteCount) },
+    answers = results.map { IosPollAnswer(it.answerId.toString(), "", it.voteCount, it.isMine) },
+    myAnswerIds = myAnswerIds.map { it.toString() },
 )
 
 private fun Attachment.Poll.toIos(): IosPoll {
     val counts = state?.results?.associate { it.answerId to it.voteCount }.orEmpty()
+    val mine = state?.myAnswerIds.orEmpty().toSet()
     return IosPoll(
         pollId = pollId.toString(),
         title = title.orEmpty(),
@@ -3885,7 +3901,8 @@ private fun Attachment.Poll.toIos(): IosPoll {
         multiple = PollFlag.MULTISELECT in flags,
         revote = PollFlag.REVOTE in flags,
         closed = PollFlag.CLOSED in flags,
-        answers = answers.map { IosPollAnswer(it.answerId?.toString().orEmpty(), it.text, it.answerId?.let { id -> counts[id] } ?: 0) },
+        answers = answers.map { IosPollAnswer(it.answerId?.toString().orEmpty(), it.text, it.answerId?.let { id -> counts[id] } ?: 0, it.answerId in mine) },
+        myAnswerIds = state?.myAnswerIds.orEmpty().map { it.toString() },
     )
 }
 

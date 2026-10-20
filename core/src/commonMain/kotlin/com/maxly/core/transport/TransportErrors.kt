@@ -57,8 +57,14 @@ class ServerErrorException(
      */
     val displayText: String? get() = title ?: localizedText
 
+    /** `poll.already.voted`: the user has already voted in this poll (and it does not allow a revote). */
+    val isPollAlreadyVoted: Boolean get() = errorKey == ERROR_POLL_ALREADY_VOTED
+
     companion object {
         private val LEGACY_EXPIRED = setOf("FAIL_LOGIN_TOKEN", "FAIL_LOGOUT_ALL")
+
+        /** [errorKey] of a second vote in a poll ([isPollAlreadyVoted]). */
+        const val ERROR_POLL_ALREADY_VOTED: String = "poll.already.voted"
 
         /** Builds the exception from an ERROR reply. */
         fun from(packet: TransportPacket): ServerErrorException {

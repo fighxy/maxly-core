@@ -188,7 +188,10 @@ sealed interface Attachment {
         val flags: Set<PollFlag>,
         val state: PollState?,
         override val raw: Map<*, *>,
-    ) : Attachment
+    ) : Attachment {
+        /** Answers the current user voted for ([PollState.myAnswerIds]); empty without a state or a vote. */
+        val myAnswerIds: List<Long> get() = state?.myAnswerIds.orEmpty()
+    }
 
     /**
      * A service message (`_type: "CONTROL"`): chat created, member added or left, title changed,

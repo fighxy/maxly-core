@@ -416,12 +416,19 @@ class MessagesApi(
         return requireMessage(sink.request(Opcode.MSG_SEND, payload), Opcode.MSG_SEND, chatId)
     }
 
-    /** Votes (`SEND_VOTE` 304, PyMax `vote_poll`): `{chatId, messageId, pollId, answersIds}`; reply `state` (required). */
+    /**
+     * Votes (`SEND_VOTE` 304, PyMax `vote_poll`): `{chatId, messageId, pollId, answersIds}`; reply `state` (required).
+     * The returned state marks [answerIds] as the user's ([PollState.myAnswerIds]). A second vote in a
+     * poll without [PollFlag.REVOTE] fails with `poll.already.voted`
+     * ([com.maxly.core.transport.ServerErrorException.isPollAlreadyVoted]).
+     */
     suspend fun votePoll(chatId: Long, messageId: Long, pollId: Long, answerIds: List<Long>): PollState {
         require(answerIds.isNotEmpty()) { "answerIds must not be empty" }
         val payload = linkedMapOf<String, Any?>("chatId" to chatId, "messageId" to messageId, "pollId" to pollId, "answersIds" to answerIds)
         val map = replyMap(sink.request(Opcode.SEND_VOTE, payload), Opcode.SEND_VOTE)
-        return PollState.from(map["state"]) ?: throw MalformedReplyException(Opcode.SEND_VOTE, "no poll state", map)
+        val state = PollState.from(map["state"]) ?: throw MalformedReplyException(Opcode.SEND_VOTE, "no poll state", map)
+        // the vote went through: the sent answers are the user's even if the reply does not mark them
+        return state.withMyVote(answerIds)
     }
 
     /**

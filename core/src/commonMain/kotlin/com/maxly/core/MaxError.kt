@@ -85,6 +85,9 @@ data class MaxError(
      * [localizedMessage]; `null` when the server sent neither (show a generic text then).
      */
     val serverText: String? get() = title ?: localizedMessage
+
+    /** [ErrorKind.SERVER] with `poll.already.voted`: the user has already voted in that poll. */
+    val isPollAlreadyVoted: Boolean get() = kind == ErrorKind.SERVER && errorKey == ServerErrorException.ERROR_POLL_ALREADY_VOTED
 }
 
 /** [this] with the server's texts of [e] ([ServerErrorException.title] and the others). */

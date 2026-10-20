@@ -765,6 +765,26 @@ class MaxClientTest {
     }
 
     @Test
+    fun alreadyVotedDoesNotReconnect() = runTest {
+        val kv = InMemoryKeyValueStore()
+        val factory = ScriptedConnectionFactory()
+        val c = smsLogin(kv, factory, config.copy(transport = quiet.copy(autoReconnect = true)))
+        val connections = factory.openCount
+        val vote = async { runCatching { c.votePoll(1, 2, 3, listOf(4)) } }
+        runCurrent()
+        factory.lastConnection!!.fail(Opcode.SEND_VOTE, mapOf("error" to "poll.already.voted", "message" to "Vote failed"))
+        val e = assertIs<com.maxly.core.transport.ServerErrorException>(vote.await().exceptionOrNull())
+        assertTrue(e.isPollAlreadyVoted)
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(ClientState.Ready(5), c.state.value)
+        assertEquals(com.maxly.core.transport.ConnectionState.Connected, c.session.transport.state.value)
+        assertEquals(connections, factory.openCount)
+        c.disconnect()
+    }
+
+    @Test
     fun networkErrorDuringLoginReconnectsAndKeepsTheToken() = runTest {
         val kv = InMemoryKeyValueStore()
         smsLogin(kv, ScriptedConnectionFactory()).disconnect()
