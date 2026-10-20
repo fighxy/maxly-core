@@ -252,6 +252,26 @@ class MessengerToolsClientTest {
     }
 
     @Test
+    fun renameWithoutContactInReplySetsTheTrimmedNameOnTheStoredUser() = runTest {
+        val (c, conn) = loggedIn(backgroundScope, contacts = listOf(user(5, "Ivan", 79990000005)))
+        val rename = async { c.renameContact(5, "  Ваня ", " Петров ") }
+        runCurrent()
+        val sent = conn.answer(Opcode.CONTACT_UPDATE, mapOf<String, Any?>())
+        rename.await()
+        assertEquals("Ваня", sent["firstName"])
+        assertEquals("Петров", sent["lastName"])
+        assertEquals("Ваня Петров", c.displayName(5))
+        assertEquals(79990000005, c.store.state.value.users[5]?.phone)
+
+        val clear = async { c.renameContact(5, " ", "  ") }
+        runCurrent()
+        conn.answer(Opcode.CONTACT_UPDATE, mapOf("contact" to mapOf("id" to 5L)))
+        clear.await()
+        assertEquals("Ivan", c.displayName(5))
+        assertTrue(5L in c.store.state.value.contactIds)
+    }
+
+    @Test
     fun contactEditsAndAddressBookNames() = runTest {
         val (c, conn) = loggedIn(backgroundScope, contacts = listOf(user(5, "Ivan", 79990000005), user(6, "Petr", 79990000006)))
         assertEquals(setOf(5L, 6L), c.store.state.value.contactIds)

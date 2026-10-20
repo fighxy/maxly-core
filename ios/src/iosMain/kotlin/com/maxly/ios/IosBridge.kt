@@ -2507,6 +2507,8 @@ class MaxIosClient internal constructor(
             official = "OFFICIAL" in user.options,
             commands = bot?.commands.orEmpty().map { IosBotCommand(it.name, it.description.orEmpty()) },
             hasWebApp = isBot && hasWebApp(user.options + card.options),
+            isContact = isContactOf(peer, c.store.state.value),
+            customName = customNameOf(peer, user, c.store.state.value),
         ).apply {
             this.presence = PresenceStatus.of(seen)
             this.mentionName = card.mentionName.orEmpty()
@@ -3044,6 +3046,10 @@ class IosProfile(
     val hasWebApp: Boolean = false,
     /** Channel option `COMMENTS`: `1` on, `0` off, `-1` when the card does not say. */
     val comments: Int = -1,
+    /** True when this is a user (`DIALOG`) in the account's contacts (`MaxState.contactIds`). */
+    val isContact: Boolean = false,
+    /** The name this account gave the contact (`CUSTOM` entry, [com.maxly.core.api.ContactNames.customName]); empty when none. */
+    val customName: String = "",
 ) {
     /** A user's presence code ([IosPresence.status]); `-1` unknown or not a user. */
     var presence: Int = -1
@@ -3103,6 +3109,10 @@ class IosContact(
     val isBot: Boolean = false,
     val isOfficial: Boolean = false,
     val isServiceAccount: Boolean = false,
+    /** True when this is a user (`DIALOG`) in the account's contacts (`MaxState.contactIds`). */
+    val isContact: Boolean = false,
+    /** The name this account gave the contact (`CUSTOM` entry, [com.maxly.core.api.ContactNames.customName]); empty when none. */
+    val customName: String = "",
 ) {
     /**
      * The name to show ([MaxIosClient.displayName]): the contact name, else the address-book
@@ -4303,6 +4313,13 @@ private fun dialogPeer(chat: Chat, me: Long?): Long? {
     return ids.firstOrNull { it != me }
 }
 
+/** Whether [userId] is one of the account's contacts, read from the current [state]. */
+internal fun isContactOf(userId: Long, state: MaxState): Boolean = userId in state.contactIds
+
+/** The account's own name for [userId] (the store's copy wins, so renames show at once); empty when none. */
+internal fun customNameOf(userId: Long, user: MaxUser?, state: MaxState): String =
+    (state.users[userId] ?: user)?.let { com.maxly.core.api.ContactNames.customName(it) }.orEmpty()
+
 internal fun chatProfile(chat: Chat): IosProfile {
     val options = chat.raw["options"] as? Map<*, *>
     return IosProfile(
@@ -4369,6 +4386,8 @@ internal fun contactSnapshot(user: MaxUser, state: MaxState, ttlMs: Long = MaxSt
         isBot = "BOT" in options,
         isOfficial = "OFFICIAL" in options,
         isServiceAccount = "SERVICE_ACCOUNT" in options,
+        isContact = isContactOf(user.id, state),
+        customName = customNameOf(user.id, user, state),
     ).apply {
         displayName = nameOf(user, state).orEmpty()
         this.presence = PresenceStatus.of(seen)

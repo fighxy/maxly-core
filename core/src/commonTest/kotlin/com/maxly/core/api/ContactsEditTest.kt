@@ -36,7 +36,27 @@ class ContactsEditTest {
         assertFailsWith<IllegalArgumentException> { UsersApi(ScriptSink()).renameContact(5, "a".repeat(65)) }
         assertFailsWith<IllegalArgumentException> { UsersApi(ScriptSink()).renameContact(5, "a", "b".repeat(65)) }
         UsersApi(ScriptSink(mapOf("contact" to renamed))).renameContact(5, "a".repeat(64))
-        assertFailsWith<MalformedReplyException> { UsersApi(ScriptSink(mapOf("x" to 1))).renameContact(5, "A", "B") }
+        assertFailsWith<MalformedReplyException> { UsersApi(ScriptSink("no map")).renameContact(5, "A", "B") }
+    }
+
+    @Test
+    fun renameWithoutContactInReplyKeepsTheTrimmedNameLocally() = runTest {
+        val u = UsersApi(ScriptSink(mapOf("x" to 1))).renameContact(5, "  Ваня ", " Петров  ")
+        assertEquals(5L, u.id)
+        assertEquals("Ваня Петров", ContactNames.customName(u))
+        val noName = mapOf("id" to 5L, "names" to listOf(mapOf("name" to "Ivan", "type" to "ONEME")))
+        val v = UsersApi(ScriptSink(mapOf("contact" to noName))).renameContact(5, " Ваня ", "  ")
+        assertEquals("Ваня", ContactNames.customName(v))
+        assertTrue(v.names.any { it.type == "ONEME" })
+    }
+
+    @Test
+    fun renameToBlankDropsTheCustomName() = runTest {
+        val u = UsersApi(ScriptSink(mapOf("contact" to renamed))).renameContact(5, "  ", " ")
+        assertEquals(null, ContactNames.customName(u))
+        val own = MaxUser.from(mapOf("id" to 5L, "names" to listOf(mapOf("name" to "Ivan", "type" to "ONEME"))))!!
+        val back = ContactNames.withCustom(ContactNames.withCustom(own, "A", "B"), "", null)
+        assertEquals("Ivan", ContactNames.label(back, null))
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.maxly.core.MaxError
 import com.maxly.core.api.AccountConfig
 import com.maxly.core.api.AccountConfigUpdate
 import com.maxly.core.api.Chat
+import com.maxly.core.api.ContactNames
 import com.maxly.core.api.ChatFolders
 import com.maxly.core.api.ChatHistory
 import com.maxly.core.api.ChatMembersResult
@@ -1611,7 +1612,12 @@ class MaxClient @Throws(Exception::class) constructor(
     @Throws(CancellationException::class, Exception::class)
     suspend fun renameContact(userId: Long, firstName: String, lastName: String? = null): MaxUser {
         val t = ticket()
-        val user = api.users.renameContact(userId, firstName, lastName)
+        val reply = api.users.renameContact(userId, firstName, lastName)
+        // A reply without the profile (only the id and our name): keep the stored profile and set the name on it.
+        val stored = store.state.value.users[userId]
+        val user = if (stored != null && reply.names.none { it.type != ContactNames.CUSTOM }) {
+            ContactNames.withCustom(stored, firstName, lastName)
+        } else reply
         commit(t) { store.putContacts(listOf(user)) }
         return user
     }

@@ -78,4 +78,20 @@ object ContactNames {
         (user.raw["names"] as? List<*>)?.let { list -> raw["names"] = list.filterNot { (it as? Map<*, *>)?.get("type") == CUSTOM } }
         return user.copy(names = user.names.filterNot { it.type == CUSTOM }, raw = raw)
     }
+
+    /**
+     * [user] with its `CUSTOM` entry set to [firstName] / [lastName] (trimmed, a blank part left
+     * out); both blank removes the entry ([withoutCustom]), so the person's own name shows.
+     */
+    fun withCustom(user: MaxUser, firstName: String?, lastName: String?): MaxUser {
+        val first = firstName?.trim().orEmpty()
+        val last = lastName?.trim().orEmpty()
+        if (first.isEmpty() && last.isEmpty()) return withoutCustom(user)
+        val entry = UserName(name = null, firstName = first.ifEmpty { null }, lastName = last.ifEmpty { null }, type = CUSTOM)
+        val rawEntry = linkedMapOf<String, Any?>("type" to CUSTOM, "firstName" to entry.firstName, "lastName" to entry.lastName)
+        val raw = LinkedHashMap<Any?, Any?>(user.raw)
+        val oldList = (user.raw["names"] as? List<*>).orEmpty().filterNot { (it as? Map<*, *>)?.get("type") == CUSTOM }
+        raw["names"] = listOf(rawEntry) + oldList
+        return user.copy(names = listOf(entry) + user.names.filterNot { it.type == CUSTOM }, raw = raw)
+    }
 }

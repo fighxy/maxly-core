@@ -76,7 +76,9 @@ class UsersApi(private val sink: RequestSink) {
      * empty [firstName] is allowed and sent as `""`, as the web client does: with a last name the
      * server shows the person's own first name, with both empty the original names come back.
      * A name over [CONTACT_NAME_MAX] characters fails before sending (the server answers
-     * `error.contact.name.maxlength`). The web client adds a user who is not a contact yet
+     * `error.contact.name.maxlength`). The returned user carries the trimmed name as its `CUSTOM`
+     * entry (none when both are blank), also when the reply lacks the contact (then only the id
+     * is known). The web client adds a user who is not a contact yet
      * (`ADD`, [addContact]) before renaming.
      */
     suspend fun renameContact(userId: Long, firstName: String, lastName: String? = null): MaxUser {
@@ -84,7 +86,13 @@ class UsersApi(private val sink: RequestSink) {
         val last = lastName?.trim()?.takeIf { it.isNotEmpty() }
         require(first.length <= CONTACT_NAME_MAX && (last?.length ?: 0) <= CONTACT_NAME_MAX) { "name longer than $CONTACT_NAME_MAX" }
         val payload = linkedMapOf<String, Any?>("contactId" to userId, "action" to "UPDATE", "firstName" to first, "lastName" to last)
-        return contact(Opcode.CONTACT_UPDATE, sink.request(Opcode.CONTACT_UPDATE, payload).payload)
+        val reply = sink.request(Opcode.CONTACT_UPDATE, payload).payload as? Map<*, *>
+            ?: throw MalformedReplyException(Opcode.CONTACT_UPDATE, "payload is not a map", null)
+        val contact = MaxUser.from(reply["contact"])?.takeIf { it.id == userId }
+        val cleared = first.isEmpty() && last == null
+        // The server's own name wins; without one (or on a clear) the trimmed values sent are applied locally.
+        if (contact != null && !cleared && ContactNames.customName(contact) != null) return contact
+        return ContactNames.withCustom(contact ?: MaxUser.from(mapOf("id" to userId))!!, first, last)
     }
 
     /**
