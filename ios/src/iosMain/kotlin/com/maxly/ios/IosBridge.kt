@@ -561,6 +561,32 @@ class MaxIosClient internal constructor(
     }
 
     /**
+     * Comments of channel post [postId] from the start of the discussion: up to [limit] comments
+     * strictly after [afterMs] (pass the post time for the first page), oldest first, with their
+     * authors resolved. `CHAT_HISTORY` with `postId`, `forward` = [limit], `backward` = 0.
+     */
+    fun loadCommentsAfter(chatId: String, postId: String, afterMs: Long, limit: Int, onResult: (List<IosMessage>, String?, String?) -> Unit) {
+        perform(onResult, { emptyList() }) { c ->
+            flights.share("comments-after:$chatId:$postId:$afterMs:$limit") {
+                pacer.priority {
+                    val page = c.api.messages.getCommentHistory(
+                        parseId(chatId),
+                        parseId(postId),
+                        from = afterMs.coerceAtLeast(0),
+                        backward = 0,
+                        forward = limit.coerceIn(1, 100),
+                    )
+                    resolveUsers(c, page.mapNotNull { it.sender })
+                    val state = c.store.state.value
+                    page.filter { it.time > afterMs }
+                        .sortedBy { it.time }
+                        .map { messageSnapshot(it, chatId, state) }
+                }
+            }
+        }
+    }
+
+    /**
      * Replaces the text of a sent message (`MSG_EDIT` 67); the edited message comes back. The
      * formatting of the stored message is kept where it still fits the new text (`MSG_EDIT`
      * always carries the full `elements` list, so leaving it out would clear it). A message the
