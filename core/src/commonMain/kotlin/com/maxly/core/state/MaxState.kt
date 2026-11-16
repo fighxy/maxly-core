@@ -351,8 +351,15 @@ object StateReducer {
      * time ([invalidateOnline]); then the reply's `presence` map (`{userId: {seen, status}}`,
      * KometTeam/Komet `PresenceFetch.primeAll`) is applied ([putPresence]). With [now] [NO_TIME]
      * the applied entries get no refresh time and are not expired by the TTL.
+     *
+     * [contactsDelta]: the `LOGIN` was sent with a `contactsSync` marker (a reconnect), so its
+     * `contacts` are only the contacts changed since then, often none. They join
+     * [MaxState.contactIds] instead of replacing it: replacing made every other contact look like
+     * a stranger until the next full login. A full login (`contactsSync` `-1`) replaces the list.
+     * A contact removed meanwhile leaves through its `CONTACT_UPDATE` `REMOVE` push or the next
+     * full list (opcode 8, [putContacts] only adds).
      */
-    fun login(state: MaxState, result: LoginResult, messageLimit: Int, now: Long): MaxState {
+    fun login(state: MaxState, result: LoginResult, messageLimit: Int, now: Long, contactsDelta: Boolean = false): MaxState {
         // Another account: a fresh snapshot, but the device address book and the name rule stay.
         val base = if (result.userId != null && state.me != null && result.userId != state.me) {
             MaxState(
@@ -372,8 +379,11 @@ object StateReducer {
         val contacts = (result.raw["contacts"] as? List<*>)?.mapNotNull(MaxUser::from)
         val users = contacts.orEmpty() + listOfNotNull(MaxUser.from(result.profile?.get("contact")))
         s = putUsers(s, users)
-        // A delta LOGIN may omit `contacts`; then the known list stays.
-        if (contacts != null) s = s.copy(contactIds = contacts.map { it.id }.filter { it != s.me }.toSet())
+        // A delta LOGIN may omit `contacts`; then the known list stays. With them it adds to the list.
+        if (contacts != null) {
+            val ids = contacts.map { it.id }.filter { it != s.me }.toSet()
+            s = s.copy(contactIds = if (contactsDelta && base === state) s.contactIds + ids else ids)
+        }
         val byChat = result.raw["messages"] as? Map<*, *>
         byChat?.forEach { (k, v) ->
             val chatId = k.asLong() ?: return@forEach
