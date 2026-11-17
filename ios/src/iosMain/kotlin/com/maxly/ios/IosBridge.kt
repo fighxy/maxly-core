@@ -3728,6 +3728,16 @@ class IosEvent(
     /** Service message info (first `CONTROL` attachment) of a `message` or `edited` event; `null` otherwise. */
     var control: IosControl? = null
         internal set
+
+    /**
+     * For a `read` event of this account's own mark (another device read the chat): the chat's
+     * unread counter after the core applied the mark. A mark below the last message leaves the
+     * messages after it unread; the core recounts them from its cache when that covers the gap,
+     * else keeps the server's counter. `-1` for other kinds, a peer's mark, "mark as unread" and
+     * a chat the core does not hold.
+     */
+    var chatUnread: Int = -1
+        internal set
 }
 
 /**
@@ -4579,7 +4589,12 @@ internal fun flatten(event: MaxEvent, state: MaxState): List<IosEvent> = when (e
             authorId = event.userId.toString(),
             timeMs = event.mark,
             unread = if (event.setAsUnread) 1 else 0,
-        ),
+        ).apply {
+            // the stored counter: [state] already has this mark applied
+            if (event.userId == state.me && !event.setAsUnread) {
+                chatUnread = state.chats[event.chatId]?.newMessages ?: -1
+            }
+        },
     )
     is MaxEvent.StoriesUpdated -> listOf(storiesEvent(event.preview))
     is MaxEvent.ContactUpdated -> listOf(
