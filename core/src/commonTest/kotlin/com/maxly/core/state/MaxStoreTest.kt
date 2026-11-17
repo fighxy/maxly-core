@@ -63,8 +63,32 @@ class MaxStoreTest {
         val store = loggedIn()
         store.applyLogin(LoginResult.from(mapOf("chats" to emptyList<Any?>())))
         assertEquals(setOf(20L), store.state.value.contactIds)
+        // a full LOGIN (no contactsSync marker) replaces the list, even with an empty one
         store.applyLogin(LoginResult.from(mapOf("contacts" to emptyList<Any?>())))
         assertEquals(emptySet<Long>(), store.state.value.contactIds)
+    }
+
+    @Test
+    fun reconnectLoginAddsChangedContactsToTheList() {
+        val store = loggedIn()
+        // a reconnect LOGIN (contactsSync marker) answers only what changed: often nothing
+        store.applyLogin(LoginResult.from(mapOf("contacts" to emptyList<Any?>())), contactsDelta = true)
+        assertEquals(setOf(20L), store.state.value.contactIds)
+        // a contact added on another device meanwhile joins the known ones
+        val added = mapOf("id" to 30, "names" to listOf(mapOf("firstName" to "Bob")))
+        store.applyLogin(LoginResult.from(mapOf("contacts" to listOf(added))), contactsDelta = true)
+        assertEquals(setOf(20L, 30L), store.state.value.contactIds)
+    }
+
+    @Test
+    fun reconnectLoginOfAnotherAccountStillReplacesTheList() {
+        val store = loggedIn()
+        val other = mapOf(
+            "profile" to mapOf("contact" to mapOf("id" to 99, "names" to listOf(mapOf("name" to "Other")))),
+            "contacts" to listOf(mapOf("id" to 40, "names" to listOf(mapOf("firstName" to "Eve")))),
+        )
+        store.applyLogin(LoginResult.from(other), contactsDelta = true)
+        assertEquals(setOf(40L), store.state.value.contactIds)
     }
 
     @Test

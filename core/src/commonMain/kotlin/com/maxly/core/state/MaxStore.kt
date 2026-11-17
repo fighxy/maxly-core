@@ -123,10 +123,13 @@ class MaxStore(
     /** Applies one push ([StateReducer.reduce]). */
     fun apply(event: MaxEvent) = mutate { StateReducer.reduce(it, event, clock(), messageLimit) }
 
-    /** Seeds from a `LOGIN` reply ([StateReducer.login], presence refresh times at [clock]). */
-    fun applyLogin(result: LoginResult) {
+    /**
+     * Seeds from a `LOGIN` reply ([StateReducer.login], presence refresh times at [clock]).
+     * [contactsDelta]: the `LOGIN` carried a `contactsSync` marker, its `contacts` add to the list.
+     */
+    fun applyLogin(result: LoginResult, contactsDelta: Boolean = false) {
         val now = clock()
-        mutate { StateReducer.login(it, result, messageLimit, now) }
+        mutate { StateReducer.login(it, result, messageLimit, now, contactsDelta) }
     }
 
     fun putChats(chats: List<Chat>) = mutate { StateReducer.putChats(it, chats) }

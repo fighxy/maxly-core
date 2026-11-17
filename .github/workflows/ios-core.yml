@@ -35,14 +35,14 @@ on:
       - 'gradle.properties'
       - '.github/workflows/ios-core.yml'
 
-# macos-14 ≈ 10× Linux minute cost; keep the path filter and a single job.
+# macos-15 ≈ 10× Linux minute cost; keep the path filter and a single job.
 concurrency:
   group: ios-core-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   ios-and-jvm:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4

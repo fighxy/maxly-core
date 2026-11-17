@@ -708,7 +708,8 @@ class MaxClient @Throws(Exception::class) constructor(
             val savedReads = if (owner != null && owner != localReadsOwner) LocalRead.decode(readSetting(localReadsKey(owner))) else null
             // put before the snapshot when it is the same account, so no observer sees the server counters alone
             if (savedReads != null && store.state.value.me.let { it == null || it == owner }) store.setLocalReads(savedReads)
-            store.applyLogin(r)
+            // a LOGIN with a contactsSync marker (reconnect) answers only the changed contacts
+            store.applyLogin(r, contactsDelta = (login.sentSync?.contactsSync ?: -1L) > 0)
             if (savedReads != null) {
                 store.setLocalReads(savedReads)
                 localReadsOwner = owner
